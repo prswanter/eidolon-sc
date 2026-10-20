@@ -123,6 +123,7 @@ scripts/stand-sync-local.sh        # fetch → outfits → thumbnails → upload
 - **没有后台权限**：`EIDOLON_ADMINS` 为空，`/admin` 下所有路由 404（有意为之，不是坏了）。
 - **落后上游两个 PR**（见上）：每日任务、看板汇总表在本分支里没有。
 - **剧情数据、角色音色、立绘素材都不在仓库里**，要自己准备。
+- **`.claude/skills/*` 那批软链接在仓库里显示为删除**：Windows 上 `core.symlinks=false`，解包时被展开成了目录副本，git 只认到原链接消失。纯开发工具的事，不影响运行。
 
 ## 许可证
 
