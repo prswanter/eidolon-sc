@@ -69,13 +69,40 @@
 
 ## 和上游的版本关系
 
-- 当前基线：上游 **`09dd9fa`**（2026-10-20 03:29Z，PR #152 好感度判断评测）
-- 同步方式：**快照 + 补丁重放**，不走 `git merge`。每个上游版本在本地留 tag：`upstream-2026-10-18`、`upstream-2026-10-20`；本机版本留 `local-2026-10-20`、`local-2026-10-20-main`
-- 上游之后又走了 14 个提交，本分支**尚未合入**：
-  - PR #153 **看板汇总表**：看板改读 15 分钟粒度预汇总表，耗时 1.4–3.5s → 0.05–0.19s
-  - PR #155 **每日任务**：每天三项小事（任一角色一回合 / 送出一份礼物 / 共 10 回合），各多得一次抽奖
+**本仓库的分支**：
 
-合入上游新版时注意：那两个 PR 改的 `frontend/src/lib/navShell.ts`、`AppNav.tsx`、`i18n/zh.ts`、`lib/api.ts`、`theme/icons.ts`，正好是本分支加「人设卡」「回复格式」时也动过的同一批文件，会产生冲突。
+| 分支 / 标签 | 是什么 |
+|---|---|
+| `main` | 我们的版本 = 上游 `09dd9fa` + 一个「本机版」提交，和正在跑的容器逐字节一致 |
+| `upstream-mirror` | 上游 `main` 的原样镜像（当前 `4b86953`），只用来对比，不拿来部署 |
+| `snapshot-history` | 早期按 tarball 快照攒的 15 个提交，留个来路 |
+| `upstream-2026-10-18` / `upstream-2026-10-20` | 每个上游版本进来时打的 tag |
+
+**跟上游差了哪些**：上游在 `09dd9fa` 之后又走了 14 个提交，这两个我们还没要：
+
+- PR #153 **看板汇总表**：看板改读 15 分钟粒度预汇总表，耗时 1.4–3.5s → 0.05–0.19s
+- PR #155 **每日任务**：每天三项小事（任一角色一回合 / 送出一份礼物 / 共 10 回合），各多得一次抽奖
+
+**怎么看上游更新、怎么挑着装**：
+
+```sh
+git fetch upstream                        # 拉上游最新
+git log --oneline main..upstream/main     # 上游比我们多了什么
+git show <sha>                            # 某个提交具体改了什么
+git diff main..upstream/main -- backend/  # 只看某个目录
+git cherry-pick <sha>                     # 只要这一个改动
+git merge upstream/main                   # 或者整批合
+git push                                  # main 已跟踪 origin/main
+```
+
+网页上直接看差异：<https://github.com/prswanter/eidolon-sc/compare/main...upstream-mirror>
+
+**两个坑**：
+
+1. 上游那两个 PR 改的 `navShell.ts`、`AppNav.tsx`、`i18n/zh.ts`、`lib/api.ts`、`theme/icons.ts`，正好是我们加「人设卡」「回复格式」时也动过的文件，`merge` 会冲突；`cherry-pick` 单条改动通常能干净合进来。
+2. 作者说要出破坏型更新，那就**一个版本一个 tag 地跟**：`git fetch upstream` → `git tag upstream-<日期> <sha>` → 在分支上试合、跑通了再进 `main`。合不动就把 tag 留着，等下一版。
+
+> 网络：`github.com` 直连被 DNS 污染，`origin` / `upstream` 都走 SSH over 443（`~/.ssh/config` 里 `Host github.com → ssh.github.com:443` 已配好）。
 
 ## 在本机跑起来
 
