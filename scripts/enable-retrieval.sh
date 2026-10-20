@@ -3,9 +3,11 @@
 #
 # 前置（两处 key 都是服务端配置，浏览器自带 key 顶不了）：
 #   .env 里 SILICONFLOW_API_KEY        向量化 + 重排，没有替代
-#   .env 里 JUDGE_PROVIDER=bailian     判断模型（检索决策 / 好感度 / 通话情绪）
-#          BAILIAN_JUDGE_API_KEY=sk-...
-#          BAILIAN_JUDGE_WORKSPACE_ID=llm-...
+#   .env 里 JUDGE_PROVIDER=...         判断模型（检索决策 / 好感度 / 通话情绪），三选一：
+#          jev         + JEV_API_KEY（文档默认；开好感度时最准）
+#          cloudflare  + CLOUDFLARE_API_TOKEN、CLOUDFLARE_ACCOUNT_ID（有免费额度）
+#          bailian     + BAILIAN_JUDGE_API_KEY、BAILIAN_JUDGE_WORKSPACE_ID
+#                        （只适合关掉好感度的部署，见 docs/configuration.md）
 #
 #   sh scripts/enable-retrieval.sh            校验 + 重建 + 同步剧情库
 #   sh scripts/enable-retrieval.sh --check    只校验配置，不动任何东西
@@ -33,7 +35,7 @@ need() {
 need SILICONFLOW_API_KEY "cloud.siliconflow.cn 控制台「API 密钥」新建，sk- 开头。向量化和重排都要它"
 judge=$(sed -n 's/^JUDGE_PROVIDER=//p' .env | head -1)
 if [ -z "$judge" ]; then
-  echo "  缺 JUDGE_PROVIDER：三选一，本机建议 bailian"
+  echo "  缺 JUDGE_PROVIDER：三选一——jev（默认）/ cloudflare（免费额度）/ bailian（只适合关好感度）"
   missing=1
 else
   echo "  有 JUDGE_PROVIDER=$judge"
@@ -44,8 +46,8 @@ else
       ;;
     jev) need JEV_API_KEY "openrouter.ai 的 key" ;;
     cloudflare)
-      need CLOUDFLARE_API_TOKEN "Workers AI 的 Read + Edit 权限"
-      need CLOUDFLARE_ACCOUNT_ID "Cloudflare 控制台右侧的账户 ID"
+      need CLOUDFLARE_API_TOKEN "Workers AI 的 Read + Edit 权限（dash.cloudflare.com 的 Workers AI 页「Use REST API」）"
+      need CLOUDFLARE_ACCOUNT_ID "同一页面上的 Account ID"
       ;;
   esac
 fi
