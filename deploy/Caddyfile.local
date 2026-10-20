@@ -10,7 +10,16 @@
 
 https://:8443 {
 	tls /certs/server.crt /certs/server.key
-	reverse_proxy frontend:3000
+
+	# 立绘素材：走同源路径，页面就不用为存储桶配跨域，也不会出现 HTTPS 页面加载 HTTP 素材。
+	# 对应 .env 的 EIDOLON_STAND_ASSETS_URL=https://<IP>:8443/stands/eidolon-stand
+	handle_path /stands/* {
+		reverse_proxy minio:9000
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
 }
 
 # 供手机下载根证书：http://10.34.31.40:8080/ca.crt

@@ -5,7 +5,7 @@ services:
     volumes:
       - eidolon-data:/data
       - ./characters:/characters:ro
-      - ./corpus:/corpus:ro
+      - ./corpus:/corpus # 立绘同步要把素材写进 corpus/stand，所以这里不能只读
       - ./deploy:/deploy:ro # 活动名对照表 event-names.toml（同步时读取）
     restart: unless-stopped
 
@@ -61,5 +61,19 @@ services:
       - "49160-49179:49160-49179/udp"
     restart: unless-stopped
 
+  # 立绘素材的 S3 存储桶（本地 MinIO）。立绘不进仓库，浏览器直接从存储桶拉。
+  # 不对外发布端口：浏览器走 caddy 的同源路径 /stands/*，上传走容器网络的 minio:9000，
+  # 同源就没有跨域和混合内容的问题（HTTPS 页面加载 HTTP 素材会被浏览器拦掉）。
+  # 镜像用 bitnamilegacy：MinIO 官方镜像 2025 年已从 Docker Hub 下架。
+  minio:
+    image: bitnamilegacy/minio:latest
+    environment:
+      MINIO_ROOT_USER: ${EIDOLON_STAND_S3_ACCESS_KEY_ID:?请在 .env 里填写 EIDOLON_STAND_S3_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${EIDOLON_STAND_S3_SECRET_ACCESS_KEY:?请在 .env 里填写 EIDOLON_STAND_S3_SECRET_ACCESS_KEY}
+    volumes:
+      - minio-data:/bitnami/minio/data
+    restart: unless-stopped
+
 volumes:
   eidolon-data:
+  minio-data:
