@@ -33,16 +33,3 @@
  def _stt_provider() -> SttProvider:
      provider = os.environ.get("STT_PROVIDER") or "soniox"
      if provider not in STT_PROVIDERS:
---- a/backend/src/eidolon/sessions.py
-+++ b/backend/src/eidolon/sessions.py
-@@ -54,7 +54,9 @@
-     if settings.domain is not None:
-         return origin == settings.public_origin
-     parts = urlsplit(origin)
--    return parts.scheme == "http" and parts.hostname in _LOCAL_HOSTS
-+    return (
-+        parts.scheme == "http" and parts.hostname in _LOCAL_HOSTS
-+    ) or origin.rstrip("/") in settings.extra_origins
- 
- 
- def session_middleware(
