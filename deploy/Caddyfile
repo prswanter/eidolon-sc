@@ -1,0 +1,7 @@
+# 生产环境的 HTTPS 入口：Caddy 自动向 Let's Encrypt 申请并续期证书，HTTP 自动跳转到 HTTPS。
+# 浏览器只有在 HTTPS 下才允许使用麦克风。
+
+{$EIDOLON_DOMAIN} {
+	# 对话回复是流式的（SSE），Caddy 会随到随发，这里不加压缩
+	reverse_proxy 127.0.0.1:3000
+}
