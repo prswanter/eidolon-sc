@@ -24,7 +24,30 @@ status=0
 
 run_fetch() {
   echo "=== 1/4 拉取立绘（第一次要几小时，可反复中断重跑，已有文件不重下）==="
-  docker compose run --rm --no-deps backend eidolon stand fetch || status=1
+  # 源站 cf-static.shinycolors.moe 会间歇性断连（实测拉了一千多套后掉线）。
+  # 每次断了就自动重跑，已下载的会跳过，所以重跑很便宜。默认最多补 5 轮。
+  tries=${STAND_FETCH_TRIES:-5}
+  i=1
+  while [ "$i" -le "$tries" ]; do
+    if [ "$i" -gt 1 ]; then
+      echo "--- 第 $i 轮补拉（上一次断在源站，已下载的会跳过）---"
+      sleep 10
+    fi
+    out=$(docker compose run --rm --no-deps backend eidolon stand fetch 2>&1)
+    rc=$?
+    echo "$out" | tail -6
+    # 上游在源站断连时打印「没能从 ShinyColorsDB 拉取完新卡」，退出码未必非 0，
+    # 所以按输出判断，不能只看 $rc。
+    if echo "$out" | grep -q "没能从 ShinyColorsDB 拉取完"; then
+      echo "源站中断，准备重试（$i/$tries）"
+      i=$((i + 1))
+      continue
+    fi
+    [ "$rc" -ne 0 ] && status=1
+    return
+  done
+  echo "补拉 $tries 轮仍未拉完。已下载的都保留，稍后再跑一次本脚本的 fetch 即可续上。" >&2
+  status=1
 }
 
 run_outfits() {
