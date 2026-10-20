@@ -16,6 +16,7 @@ import pytest
 from eidolon.assembly import Backend
 from eidolon.config import (
     DEFAULT_FISH_AUDIO_MODEL,
+    BailianJudgeSettings,
     CloudflareJudgeSettings,
     JevSettings,
     LLMSettings,
@@ -565,7 +566,7 @@ async def test_a_saved_judge_model_judges_the_next_turn_while_a_call_keeps_its_o
     shown = saved.json()["judge"]
     assert shown["status"] == "overridden"
     assert shown["effective"] == {k: v for k, v in CLOUDFLARE.items() if k != "api_key"} | {
-        "api_key_last4": "2222"
+        "api_key_last4": "2222", "workspace_id": None, "region": None
     }
 
 
@@ -583,6 +584,58 @@ async def test_a_judge_model_that_fails_its_try_is_not_saved(
     assert keyless.status_code == 422 and "key" in keyless.json()["detail"]
     assert (await client.get(CONFIG)).json()["judge"]["status"] == "env"
     assert clients.judges_closed == [CloudflareJudgeSettings(CF_TOKEN, "account-1", "clef-flash")]
+
+
+BL_KEY = "sk-bl-3333"
+BAILIAN = {
+    "provider": "bailian", "api_key": BL_KEY, "model": "decision-model-preview",
+    "workspace_id": "llm-ws1", "emotion_timeout": 1.5,
+}
+
+
+async def test_bailian_saved_judges_the_next_turn_at_its_workspace_in_beijing_unless_told(
+    make_client: ClientFactory, judged: Settings, github: FakeIdentityProvider
+):
+    clients = FakeServiceClients(FakeLLM(REPLY, REPLY))
+    client = await admin_client(with_retrieval(make_client), judged, github, clients)
+    conversation_id = await start_conversation(client)
+
+    workspaceless = await client.put(JUDGE, json=BAILIAN | {"workspace_id": None})
+    saved = await client.put(JUDGE, json=BAILIAN)
+    await send_turn(client, conversation_id, "你好")
+    singapore = await client.put(JUDGE, json=BAILIAN | {"region": "singapore"})
+
+    assert workspaceless.status_code == 422 and "业务空间" in workspaceless.json()["detail"]
+    assert saved.status_code == 200, saved.text
+    assert singapore.status_code == 200, singapore.text
+    assert clients.judges_opened[1:] == [
+        BailianJudgeSettings(BL_KEY, "llm-ws1"),
+        BailianJudgeSettings(BL_KEY, "llm-ws1", "singapore"),
+    ]
+    assert (BL_KEY, "turn") in clients.judge.asked
+    await until(lambda: recorded(client, "judge"))
+    assert recorded(client, "judge") == [
+        ("cn-beijing.maas.aliyuncs.com", "decision-model-preview", False)
+    ]
+    shown = saved.json()["judge"]
+    assert shown["effective"] == {k: v for k, v in BAILIAN.items() if k != "api_key"} | {
+        "api_key_last4": "3333", "account_id": None, "region": "beijing"
+    }
+
+
+async def test_bailian_in_env_is_shown_as_it_is(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
+):
+    env = replace(admins, judge=BailianJudgeSettings(BL_KEY, "llm-ws1", "singapore"))
+    client = await admin_client(with_retrieval(make_client), env, github, FakeServiceClients())
+
+    shown = (await client.get(CONFIG)).json()["judge"]["env"]
+
+    assert shown == {
+        "provider": "bailian", "api_key_last4": "3333", "model": "decision-model-preview",
+        "account_id": None, "workspace_id": "llm-ws1", "region": "singapore",
+        "emotion_timeout": shown["emotion_timeout"],
+    }
 
 
 async def test_the_recall_threshold_saved_judges_the_next_turn_until_the_family_changes(

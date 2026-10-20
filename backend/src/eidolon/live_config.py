@@ -6,8 +6,10 @@ The configuration is in items, each a few fields saved and restored together: th
 and memory models, speech synthesis and recognition, image generation (`_Image`), the
 judge model and its thresholds,
 the reranker's thresholds, and the limits (per hour, per call, and the turns each prompt
-carries, with the exempting keys), whether affinity and gifts are on, and which of the
-deployer's services and of users' own keys go through which proxy (GLOSSARY.md「网络代理」). Overrides are
+carries, with the exempting keys), whether affinity and gifts are on, whether characters
+reach out to users and how often at most (GLOSSARY.md「搭话」), and which of the
+deployer's services and of users' own keys go through which proxy (GLOSSARY.md「网络代理」), and
+which services users are shown the status of, over how long (GLOSSARY.md「服务状态」). Overrides are
 kept in the database, one row per field, a key encrypted with a key derived from
 `EIDOLON_SECRET_KEY` (without it, keys cannot be changed here, only seen). A change to a
 service is tried before it is kept, as the chat model is when the server starts; it then holds for every turn and call that starts after
@@ -37,7 +39,8 @@ import json
 import logging
 import os
 import threading
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -60,20 +63,29 @@ from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import (
     CLOUDFLARE_JUDGE_MODELS,
+    DEFAULT_REACH_OUTS_PER_DAY,
+    DEFAULT_BAILIAN_JUDGE_REGION,
     ChatModelSettings,
     DEFAULT_JEV_BASE_URL,
     FISH_AUDIO_MODELS,
+    BailianJudgeSettings,
     CloudflareJudgeSettings,
     ImageSettings,
     JevSettings,
     JudgeSettings,
     EXEMPTING_SERVICES,
+    LLMProtocol,
     LLMSettings,
     OWN_KEYS_PROXIED,
     PROXIED_SERVICES,
+    SERVICE_NAMES,
+    STATUS_WINDOWS,
     ProxiedService,
     ProxySettings,
+    ReachOutSettings,
     Service,
+    ServiceName,
+    ServiceStatusSettings,
     Settings,
     SttKey,
     UsageLimits,
@@ -128,7 +140,9 @@ JUDGE_THRESHOLDS = "judge_thresholds"
 RERANK = "rerank"
 LIMITS = "limits"
 AFFINITY = "affinity"
+REACH_OUTS = "reach_outs"
 PROXY = "proxy"
+SERVICE_STATUS = "service_status"
 
 LLM_FIELDS = (
     "protocol", "base_url", "api_key", "model", "max_tokens", "reasoning_effort", "extra_body",
@@ -145,6 +159,9 @@ FOLLOWING = "记忆模型跟随对话模型，用它自己的思考强度和额�
 
 FOR_MODEL = "for_model"
 """Kept beside thresholds: the model they were set for."""
+
+TRIAL_MAX_TOKENS = 16
+"""The most an LLM tried cheaply may write (`trial_llm`): the least the Responses API takes."""
 
 MAX_REASON_LENGTH = 300
 """How much of the service's own error message the admin is shown."""
@@ -491,8 +508,10 @@ class _Image(_Item):
 
 class _Judge(_Item):
     name = JUDGE
-    fields = ("provider", "api_key", "model", "account_id", "emotion_timeout")
+    fields = ("provider", "api_key", "model", "account_id", "workspace_id", "region", "emotion_timeout")
     secrets = frozenset({"api_key"})
+    _per_service = ("api_key", "account_id", "workspace_id", "region")
+    """What each service has of its own, and another cannot use."""
     unavailable_reason = (
         ".env 里没有配置判断模型，检索、记忆和通话中的情绪判断在启动时就关掉了；"
         "要启用，请在 .env 里配置后重启"
@@ -503,25 +522,33 @@ class _Judge(_Item):
 
     def env(self) -> Values:
         judge = self.c.settings.judge
-        timeout = self.c.settings.emotion.timeout
+        values: Values = {field: None for field in self._per_service} | {
+            "emotion_timeout": self.c.settings.emotion.timeout
+        }
         if isinstance(judge, CloudflareJudgeSettings):
-            return {"provider": "cloudflare", "api_key": judge.api_token, "model": judge.model,
-                    "account_id": judge.account_id, "emotion_timeout": timeout}
+            return values | {"provider": "cloudflare", "api_key": judge.api_token,
+                             "model": judge.model, "account_id": judge.account_id}
+        if isinstance(judge, BailianJudgeSettings):
+            return values | {"provider": "bailian", "api_key": judge.api_key, "model": judge.model,
+                             "workspace_id": judge.workspace_id, "region": judge.region}
         assert judge is not None
-        return {"provider": "jev", "api_key": judge.api_key, "model": judge.model,
-                "account_id": None, "emotion_timeout": timeout}
+        return values | {"provider": "jev", "api_key": judge.api_key, "model": judge.model}
 
     def candidate(self, current: Values, change: Values) -> Values:
         env = self.env()
         values = current | change
         provider = values["provider"]
         if provider != current["provider"]:
-            # Another service's key and account cannot be the one in effect.
-            for field in ("api_key", "account_id"):
+            # Another service's key, account and workspace cannot be the ones in effect.
+            for field in self._per_service:
                 if field not in change:
                     values[field] = env[field] if env["provider"] == provider else None
             if "api_key" not in change and values["api_key"] is None:
                 raise ConfigInvalid("换了判断模型的服务，需要填写它的 key")
+        if provider != "cloudflare":
+            values["account_id"] = None
+        if provider != "bailian":
+            values["workspace_id"] = values["region"] = None
         if provider == "cloudflare":
             if not values["account_id"]:
                 raise ConfigInvalid("Cloudflare 需要填写账号 ID（account_id）")
@@ -529,8 +556,10 @@ class _Judge(_Item):
                 raise ConfigInvalid(
                     f"Cloudflare 的判断模型只能是 {'、'.join(CLOUDFLARE_JUDGE_MODELS)}"
                 )
-        else:
-            values["account_id"] = None
+        if provider == "bailian":
+            if not values["workspace_id"]:
+                raise ConfigInvalid("阿里云百炼需要填写业务空间 ID（workspace_id）")
+            values["region"] = values["region"] or DEFAULT_BAILIAN_JUDGE_REGION
         return values
 
     async def tried(self, values: Values) -> tuple[Values, Any]:
@@ -689,6 +718,26 @@ class _Affinity(_Item):
         return current | change
 
 
+class _ReachOuts(_Item):
+    """Whether characters reach out to users (GLOSSARY.md「搭话」), as `.env` has it (off by
+    default), and how many reach-outs each user may have a day, a whole number from 1 up; not
+    tried."""
+
+    name = REACH_OUTS
+    fields = ("enabled", "per_day")
+
+    def env(self) -> Values:
+        return {"enabled": self.c.settings.reach_outs, "per_day": DEFAULT_REACH_OUTS_PER_DAY}
+
+    def candidate(self, current: Values, change: Values) -> Values:
+        if "enabled" in change and not isinstance(change["enabled"], bool):
+            raise ConfigInvalid(f"搭话需要是 true 或 false，而不是 {change['enabled']!r}")
+        per_day = change.get("per_day", current["per_day"])
+        if isinstance(per_day, bool) or not isinstance(per_day, int) or per_day < 1:
+            raise ConfigInvalid(f"每位用户每天最多几次搭话需要是正整数，而不是 {per_day!r}")
+        return current | change
+
+
 PROXY_LABELS: dict[ProxiedService, str] = {
     "chat_llm": "扮演角色的 LLM",
     "memory_llm": "后台模型",
@@ -774,6 +823,32 @@ class _Proxy(_Item):
         return shown
 
 
+class _ServiceStatus(_Item):
+    """Which services users are shown the status of (GLOSSARY.md「服务状态」), a switch for
+    each, and how many of the latest minutes it goes by; not tried. A service the deployment
+    does not have is not shown, switched on or not."""
+
+    name = SERVICE_STATUS
+    fields = ("window_minutes", *SERVICE_NAMES)
+
+    def env(self) -> Values:
+        status = self.c.settings.service_status
+        return {"window_minutes": status.window_minutes} | {
+            s: s in status.services for s in SERVICE_NAMES
+        }
+
+    def candidate(self, current: Values, change: Values) -> Values:
+        for field, value in change.items():
+            if field == "window_minutes":
+                if isinstance(value, bool) or value not in STATUS_WINDOWS:
+                    raise ConfigInvalid(
+                        f"统计时段只能是 {'、'.join(map(str, STATUS_WINDOWS))} 分钟，而不是 {value!r}"
+                    )
+            elif not isinstance(value, bool):
+                raise ConfigInvalid(f"显示与否需要是 true 或 false，而不是 {value!r}")
+        return current | change
+
+
 def _proxy_settings(values: Values) -> ProxySettings:
     url = values["url"]
     return ProxySettings(
@@ -781,6 +856,12 @@ def _proxy_settings(values: Values) -> ProxySettings:
         values["enabled"],
         frozenset(s for s in PROXIED_SERVICES if values[s]),
     )
+
+
+def _bare(url: str) -> str:
+    """`url` as written in either of the ways it may be: without surrounding spaces, a
+    slash at the end, or capitals."""
+    return url.strip().rstrip("/").lower()
 
 
 def _names_user(url: str | None) -> bool:
@@ -836,7 +917,7 @@ class LiveConfig:
                 # The proxy first: as the server starts, the services are tried through it.
                 _Proxy(self), _ChatLLM(self), _MemoryLLM(self), _TTS(self), _STT(self),
                 _Image(self), _Judge(self), _JudgeThresholds(self), _Rerank(self),
-                _Limits(self), _Affinity(self),
+                _Limits(self), _Affinity(self), _ReachOuts(self), _ServiceStatus(self),
             )
         }
         self._failures: dict[str, str] = {}
@@ -931,9 +1012,70 @@ class LiveConfig:
         return item.available() and self.effective(AFFINITY)["enabled"]
 
     @property
+    def reach_outs(self) -> ReachOutSettings:
+        """Whether characters reach out to users now, and how many times a day each user at
+        most."""
+        values = self.effective(REACH_OUTS)
+        return ReachOutSettings(values["enabled"], values["per_day"])
+
+    @property
     def proxy_settings(self) -> ProxySettings:
         """Which of the deployer's services go through which proxy now."""
         return _proxy_settings(self.effective(PROXY))
+
+    @property
+    def service_status(self) -> ServiceStatusSettings:
+        """Which services users are shown the status of now, and over how long."""
+        values = self.effective(SERVICE_STATUS)
+        return ServiceStatusSettings(
+            frozenset(s for s in SERVICE_NAMES if values[s]), values["window_minutes"]
+        )
+
+    def has_service(self, service: ServiceName) -> bool:
+        """Whether the deployment has `service` on the deployer's keys now: the LLMs always;
+        the others with their keys in effect, embedding and reranking as `.env` has them."""
+        match service:
+            case "chat_llm" | "memory_llm":
+                return True
+            case "tts":
+                return bool(self.effective(TTS)["api_key"])
+            case "stt":
+                return self.stt_key is not None
+            case "judge":
+                return self._judge is not None
+            case "embedding":
+                return self.settings.embedding is not None
+            case "rerank":
+                return self.settings.rerank is not None
+            case "image":
+                return self.image_settings is not None
+
+    @asynccontextmanager
+    async def trial_llm(self, service: Literal["chat_llm", "memory_llm"]) -> AsyncIterator[ChatLLM]:
+        """The chat model in effect now, as text turns use it, or the memory model, on a
+        client of its own that asks for no reasoning effort and at most `TRIAL_MAX_TOKENS`:
+        to try it cheaply, its thinking cut short. What is asked of it is not recorded; it
+        is closed on leaving."""
+        def cheap(settings: LLMSettings) -> LLMSettings:
+            return replace(settings, max_tokens=TRIAL_MAX_TOKENS, reasoning_effort=None)
+
+        if service == "chat_llm":
+            models = self._clients.chat_models(ChatModelSettings(cheap(self.chat_model.text)))
+            try:
+                yield models.text
+            finally:
+                await models.aclose()
+            return
+        memory = self._clients.memory_llm(cheap(self.memory_llm))
+        try:
+            yield memory
+        finally:
+            await memory.aclose()
+
+    def lease_judge(self) -> Lease[JudgeModel, JudgeSettings] | None:
+        """A hold on the judge model in effect now, to try it: what is asked of it is not
+        recorded. None without one."""
+        return None if self._judge is None else self._judge.lease()
 
     @property
     def image_settings(self) -> ImageSettings | None:
@@ -967,6 +1109,26 @@ class LiveConfig:
             values |= self._overrides.get(name, {})
         return values
 
+    async def list_models(
+        self, name: Literal["chat_llm", "memory_llm"], protocol: LLMProtocol, base_url: str,
+        api_key: str | None,
+    ) -> list[str]:
+        """The models the service at `base_url` offers the key, as it lists them, for the
+        admin console to pick the model `name` is from: the key in effect now when none is
+        given, but only at the address it is in effect for, never sent to another. Raises
+        ConfigRejected saying why not."""
+        if not api_key:
+            current = self.effective(name)
+            if _bare(base_url) != _bare(current["base_url"] or ""):
+                raise ConfigRejected("换了接口地址，要先填这家的 API key")
+            api_key = current["api_key"]
+            if not api_key:
+                raise ConfigRejected("还没有 API key，请填写")
+        try:
+            return await self._clients.list_models(name, protocol, base_url, api_key)
+        except LLMError as e:
+            raise ConfigRejected(str(e)[:MAX_REASON_LENGTH]) from None
+
     def lease(self) -> DeployerLease:
         """The deployer's keys for a turn or call starting now, held until it releases
         them. Each model's requests are recorded as service calls to the model it is, and
@@ -993,7 +1155,7 @@ class LiveConfig:
             metered_llm(
                 memory.client, self._activity, llm_origin("memory_llm", memory.settings)
             ),
-            self._stt_key(), tts["api_key"], tts["model"],
+            self.stt_key, tts["api_key"], tts["model"],
             emotions, hold_background=lambda: memory.again().release,
             call_llm=metered_llm(
                 chat.client.call, self._activity, llm_origin("chat_llm", chat.settings.call)
@@ -1088,6 +1250,8 @@ class LiveConfig:
             }
             if name == MEMORY_LLM:
                 entry["follows_chat"] = self._memory_follows()
+            if name == SERVICE_STATUS:
+                entry["unconfigured"] = [s for s in SERVICE_NAMES if not self.has_service(s)]
             if name == PROXY:
                 targets = self._proxy_targets()
                 own = OWN_KEYS_PROXIED.values()
@@ -1168,6 +1332,10 @@ class LiveConfig:
     def _judge_settings(self, values: Values) -> JudgeSettings:
         if values["provider"] == "cloudflare":
             return CloudflareJudgeSettings(values["api_key"], values["account_id"], values["model"])
+        if values["provider"] == "bailian":
+            return BailianJudgeSettings(
+                values["api_key"], values["workspace_id"], values["region"], values["model"]
+            )
         env = self.settings.judge
         base_url = env.base_url if isinstance(env, JevSettings) else DEFAULT_JEV_BASE_URL
         return JevSettings(values["api_key"], values["model"], base_url)
@@ -1206,7 +1374,9 @@ class LiveConfig:
         elif prepared is not None:
             await prepared.aclose()
 
-    def _stt_key(self) -> SttKey | None:
+    @property
+    def stt_key(self) -> SttKey | None:
+        """The deployer's key for speech recognition in effect now; None without one."""
         values = self.effective(STT)
         api_key = values[STT_KEY_FIELDS[values["provider"]]]
         if not api_key:
@@ -1240,7 +1410,7 @@ class LiveConfig:
             targets["rerank"] = self.settings.rerank.base_url
         if self.effective(TTS)["api_key"]:
             targets["tts"] = PROVIDER_URLS["tts"]
-        if (key := self._stt_key()) is not None:
+        if (key := self.stt_key) is not None:
             where = (key.region or "beijing") if key.provider == "bailian" else "soniox"
             targets["stt"] = PROVIDER_URLS[where]
         if (image := self.image_settings) is not None:

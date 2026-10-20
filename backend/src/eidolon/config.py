@@ -66,6 +66,43 @@ OWN_KEYS_PROXIED: dict[Service, ProxiedService] = {
 
 PROXY_SCHEMES = ("http", "https", "socks5", "socks5h")
 
+ServiceName = Literal[
+    "chat_llm", "memory_llm", "tts", "stt", "judge", "embedding", "rerank", "image"
+]
+"""The outside services: the LLM playing the characters and the one writing down memories,
+speech synthesis and recognition, the judge model, embedding, reranking and image
+generation."""
+SERVICE_NAMES: tuple[ServiceName, ...] = get_args(ServiceName)
+
+STATUS_WINDOWS = (10, 30, 60)
+"""How many of the latest minutes the service status may go by (GLOSSARY.md「服务状态」)."""
+DEFAULT_STATUS_WINDOW = 30
+
+
+@dataclass(frozen=True)
+class ServiceStatusSettings:
+    """Which services users are shown the status of (GLOSSARY.md「服务状态」), of those the
+    deployment has, and how many of the latest minutes it goes by: every one, over half an
+    hour, unless `.env` says otherwise; the admin console may override it."""
+
+    services: frozenset[ServiceName] = frozenset(SERVICE_NAMES)
+    window_minutes: int = DEFAULT_STATUS_WINDOW
+
+
+DEFAULT_REACH_OUTS_PER_DAY = 3
+"""How many reach-outs each user may have a day, of all characters together, unless the admin
+console says otherwise."""
+
+
+@dataclass(frozen=True)
+class ReachOutSettings:
+    """Whether characters reach out to users (GLOSSARY.md「搭话」), off unless `.env` turns it
+    on, and how many reach-outs each user may have a day; the admin console may override
+    both."""
+
+    enabled: bool
+    per_day: int
+
 
 @dataclass(frozen=True)
 class ProxySettings:
@@ -155,9 +192,9 @@ DEFAULT_JEV_MODEL = "typesafe/jev-1.13"
 """Pinned: a new Jev changes which turns retrieve, so moving to one is a choice, checked
 in a real conversation."""
 
-JudgeProvider = Literal["jev", "cloudflare"]
-"""The services the judge model may be: Jev through a System One endpoint, or Cloudflare's
-Clef on Workers AI."""
+JudgeProvider = Literal["jev", "cloudflare", "bailian"]
+"""The services the judge model may be: Jev through a System One endpoint, Cloudflare's
+Clef on Workers AI, or Alibaba Cloud Model Studio's decision model."""
 
 JUDGE_PROVIDERS: tuple[JudgeProvider, ...] = get_args(JudgeProvider)
 
@@ -165,6 +202,11 @@ CloudflareJudgeModel = Literal["clef", "clef-flash"]
 CLOUDFLARE_JUDGE_MODELS: tuple[CloudflareJudgeModel, ...] = get_args(CloudflareJudgeModel)
 DEFAULT_CLOUDFLARE_JUDGE_MODEL: CloudflareJudgeModel = "clef-flash"
 """For now: the judge eval (ticket cloudflare-judge 03) decides."""
+
+DEFAULT_BAILIAN_JUDGE_MODEL = "decision-model-preview"
+DEFAULT_BAILIAN_JUDGE_REGION: BailianRegion = "beijing"
+BAILIAN_REGION_CODES: dict[BailianRegion, str] = {"beijing": "cn-beijing", "singapore": "ap-southeast-1"}
+"""Alibaba Cloud's names for the regions the decision model is served in."""
 
 DEFAULT_NOVELAI_BASE_URL = "https://image.novelai.net"
 DEFAULT_NOVELAI_MODEL = "nai-diffusion-5-curated"
@@ -219,6 +261,25 @@ EXTRA_BODY_REFUSED = (
     "tools", "tool_choice",
 )
 """What an extra request body may not set: the adapters write these to make the request."""
+
+
+NOT_AN_ADDRESS = "接口地址不是一个网址，应该像 https://api.example.com/v1 这样"
+
+
+def checked_base_url(value: str) -> str:
+    """`value`, an LLM's address, without surrounding spaces; raises ValueError
+    (`NOT_AN_ADDRESS`) unless it is a web address: not a link pasted with its brackets
+    (`[https://…](…)`), nor a host alone."""
+    url = value.strip()
+    try:
+        parts = urlsplit(url)
+        named = parts.scheme in ("http", "https") and parts.hostname is not None
+        parts.port  # noqa: B018 - raises ValueError for one that is not a number
+    except ValueError:
+        named = False
+    if not named:
+        raise ValueError(NOT_AN_ADDRESS)
+    return url
 
 
 def checked_extra_body(value: object) -> dict[str, Any]:
@@ -375,9 +436,13 @@ class Settings:
     affinity_and_gifts: bool = True
     """Whether affinity and gifts are on (GLOSSARY.md「好感度」), as they are only with the
     judge model; on unless `.env` turns them off, and the admin console may override it."""
+    reach_outs: bool = False
+    """Whether characters reach out to users (GLOSSARY.md「搭话」), on the deployer's chat
+    model; off unless `.env` turns it on, and the admin console may override it."""
     proxy: ProxySettings = field(default_factory=ProxySettings)
     """Which of the deployer's services go through which proxy; none unless `.env` sets
     one, and the admin console may override it."""
+    service_status: ServiceStatusSettings = field(default_factory=ServiceStatusSettings)
     domain: str | None = None
     """The public deployment's domain (behind Caddy); None in development."""
     dev_login: bool = False
@@ -403,10 +468,6 @@ class Settings:
     """Where browsers download the stands from, without a trailing slash: the public URL
     of the object storage they are synced to (ADR-0003, revised 2026-09-30). None shows
     every character's call background without her stand."""
-    extra_origins: frozenset[str] = frozenset()
-    """Origins other than this machine's that may change things, e.g. `http://192.168.1.9:3000`
-    to play on a phone over the LAN, or a tunnel's HTTPS origin. Empty unless `.env` sets
-    EIDOLON_EXTRA_ORIGINS; never set in a public deployment, which has a domain instead."""
 
     def __post_init__(self) -> None:
         if self.background_llm is None:
@@ -470,7 +531,9 @@ class Settings:
             history_turns=history_turns_from_env(),
             exempting_keys=exempting_keys_from_env(),
             affinity_and_gifts=_switch("EIDOLON_AFFINITY_AND_GIFTS", default=True),
+            reach_outs=_switch("EIDOLON_REACH_OUTS"),
             proxy=proxy_from_env(),
+            service_status=service_status_from_env(),
             domain=os.environ.get("EIDOLON_DOMAIN", "").strip() or None,
             dev_login=os.environ.get("EIDOLON_DEV_LOGIN", "").strip() == "1",
             github=OAuthSettings.from_env("GITHUB"),
@@ -478,19 +541,9 @@ class Settings:
             secret_key=os.environ.get("EIDOLON_SECRET_KEY") or None,
             gemini_billing_enabled=os.environ.get("GEMINI_BILLING_ENABLED", "").strip() == "1",
             stand_assets_url=stand_assets_url_from_env(),
-            extra_origins=extra_origins_from_env(),
             admins=admins_from_env(),
             contact=os.environ.get("EIDOLON_CONTACT", "").strip() or None,
         )
-
-
-def extra_origins_from_env() -> frozenset[str]:
-    """The origins `.env` allows besides this machine's, as full origins, comma separated;
-    none if it allows none."""
-    raw = os.environ.get("EIDOLON_EXTRA_ORIGINS", "")
-    return frozenset(
-        origin.rstrip("/") for part in raw.split(",") if (origin := part.strip())
-    )
 
 
 def _stt_provider() -> SttProvider:
@@ -627,6 +680,32 @@ def proxy_from_env() -> ProxySettings:
     except ValueError as e:
         raise RuntimeError(f"环境变量 EIDOLON_PROXY_URL 不对：{e}") from None
     return ProxySettings(url, True, frozenset(services))
+
+
+def service_status_from_env() -> ServiceStatusSettings:
+    """`EIDOLON_STATUS_SERVICES`: comma-separated `SERVICE_NAMES`, `all` (unset is all) or
+    `none`; `EIDOLON_STATUS_WINDOW_MINUTES`: one of `STATUS_WINDOWS`."""
+    names = _comma_list(os.environ.get("EIDOLON_STATUS_SERVICES", "")) or ["all"]
+    services: set[ServiceName] = set()
+    for name in names:
+        if name == "all":
+            services.update(SERVICE_NAMES)
+        elif name in SERVICE_NAMES:
+            services.add(name)  # pyright: ignore[reportArgumentType]  # checked above
+        elif name != "none":
+            raise RuntimeError(
+                f"环境变量 EIDOLON_STATUS_SERVICES 里的 {name} 不对：每一项只能是"
+                f" {'、'.join(SERVICE_NAMES)}，或者写 all 表示全部、none 表示都不显示"
+            )
+    window = (os.environ.get("EIDOLON_STATUS_WINDOW_MINUTES") or "").strip()
+    if window and window not in {str(w) for w in STATUS_WINDOWS}:
+        raise RuntimeError(
+            "环境变量 EIDOLON_STATUS_WINDOW_MINUTES 只能是"
+            f" {'、'.join(map(str, STATUS_WINDOWS))}，而不是 {window}"
+        )
+    return ServiceStatusSettings(
+        frozenset(services), int(window) if window else DEFAULT_STATUS_WINDOW
+    )
 
 
 @dataclass(frozen=True)
@@ -889,14 +968,48 @@ class CloudflareJudgeSettings:
         )
 
 
-JudgeSettings = JevSettings | CloudflareJudgeSettings
+@dataclass(frozen=True)
+class BailianJudgeSettings:
+    """Alibaba Cloud Model Studio's decision model, served over System One as Jev is, but
+    only at a workspace's own endpoint, with a key of that workspace."""
+
+    api_key: str
+    workspace_id: str
+    region: BailianRegion = DEFAULT_BAILIAN_JUDGE_REGION
+    model: str = DEFAULT_BAILIAN_JUDGE_MODEL
+
+    @property
+    def host(self) -> str:
+        """The region's host, the provider whichever workspace is in it."""
+        return f"{BAILIAN_REGION_CODES[self.region]}.maas.aliyuncs.com"
+
+    @property
+    def base_url(self) -> str:
+        return f"https://{self.workspace_id}.{self.host}/compatible-mode/v1"
+
+    @classmethod
+    def from_env(cls) -> "BailianJudgeSettings":
+        region = os.environ.get("BAILIAN_JUDGE_REGION") or DEFAULT_BAILIAN_JUDGE_REGION
+        if region not in BAILIAN_REGION_CODES:
+            raise RuntimeError(
+                f"环境变量 BAILIAN_JUDGE_REGION 只能是 {'、'.join(BAILIAN_REGION_CODES)}，而不是 {region}"
+            )
+        return cls(
+            api_key=_required("BAILIAN_JUDGE_API_KEY"),
+            workspace_id=_required("BAILIAN_JUDGE_WORKSPACE_ID"),
+            region=region,  # pyright: ignore[reportArgumentType]  # checked above
+            model=os.environ.get("BAILIAN_JUDGE_MODEL") or DEFAULT_BAILIAN_JUDGE_MODEL,
+        )
+
+
+JudgeSettings = JevSettings | CloudflareJudgeSettings | BailianJudgeSettings
 """The judge model chosen, and how to reach it."""
 
 
 def judge_from_env(provider: str | None = None) -> JudgeSettings | None:
-    """The judge model `provider`, or else `JUDGE_PROVIDER`, chooses: Cloudflare's needs
-    both its settings, and the `JEV_*` ones are then ignored; Jev, the default, is off
-    without its key."""
+    """The judge model `provider`, or else `JUDGE_PROVIDER`, chooses: Cloudflare's and
+    Model Studio's need their settings, and the `JEV_*` ones are then ignored; Jev, the
+    default, is off without its key."""
     provider = provider or os.environ.get("JUDGE_PROVIDER") or "jev"
     if provider not in JUDGE_PROVIDERS:
         raise RuntimeError(
@@ -904,6 +1017,8 @@ def judge_from_env(provider: str | None = None) -> JudgeSettings | None:
         )
     if provider == "cloudflare":
         return CloudflareJudgeSettings.from_env()
+    if provider == "bailian":
+        return BailianJudgeSettings.from_env()
     return _jev_from_env()
 
 

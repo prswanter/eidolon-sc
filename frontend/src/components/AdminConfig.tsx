@@ -6,11 +6,13 @@ import { AdminPage } from "@/components/app/admin/AdminPage";
 import { MetadataList, MetadataListItem } from "@/components/app/admin/MetadataList";
 import { Notice } from "@/components/app/admin/Notice";
 import { NumberInput } from "@/components/app/admin/NumberInput";
-import { StatusDot } from "@/components/app/admin/StatusDot";
+import { StatusDot } from "@/components/app/StatusDot";
 import { FailureNotice } from "@/components/app/FailureNotice";
+import { LLMProviderPicker, type ModelLister } from "@/components/app/LLMProviderPicker";
 import { ModelChoiceField } from "@/components/app/ModelChoiceField";
 import { EffortField, ExtraBodyField, useEffortHint } from "@/components/app/ReasoningEffortFields";
 import { OpenFormProvider, useOpenForm } from "@/components/admin/OpenForm";
+import { AdminSponsor } from "@/components/admin/AdminSponsor";
 import { ResetCardGrants } from "@/components/admin/ResetCardGrants";
 import { useSubmitCheck } from "@/components/admin/useSubmitCheck";
 import { AdminPrices } from "@/components/AdminPrices";
@@ -64,6 +66,7 @@ import {
   type ItemName,
   type ReadOnlyItem,
   UNLIMITED,
+  listItemModels,
 } from "@/lib/adminConfig";
 import type { FishAudioModel, LLMProtocol } from "@/lib/localOwnKeys";
 import { EFFORT_UNSET, effortLabel } from "@/lib/reasoningEffort";
@@ -73,7 +76,8 @@ import { FailureIcon } from "@/theme/icons";
 const t = copy.admin.config;
 
 /**
- * 后台的「配置」页：页首下面一排分类标签（模型 / 语音 / 限额与玩法 / 单价 / 只读），一次只看一类。
+ * 后台的「配置」页：页首下面一排分类标签（模型 / 语音 / 生图 / 网络 / 服务状态 / 限额与玩法 / 赞赏 / 单价 / 只读），一次只看一类；
+ * 内容列窄的时候标签换成下拉（`TabSelect`）。
  * 每一项一张卡，标题旁用 Badge 标出覆盖的状态，列出当前生效的值（有后台覆盖时对照 .env 的值），
  * 可以在卡里展开表单修改、恢复成 .env 的值（DESIGN.md「Layout · 后台 · 配置」）。
  *
@@ -106,8 +110,9 @@ export function AdminConfig({ initialTab }: { initialTab: ConfigTab }) {
           </p>
         )}
         {config && (
-          <Tabs value={tab} onValueChange={(value) => chooseTab(String(value))} className="gap-6">
-            <TabsList aria-label={t.nav}>
+          <Tabs value={tab} onValueChange={(value) => chooseTab(String(value))} className="@container gap-6">
+            <TabSelect tab={tab} config={config} onChoose={chooseTab} />
+            <TabsList aria-label={t.nav} className="hidden @lg:inline-flex">
               {CONFIG_TABS.map((name) => (
                 <TabsTrigger key={name} value={name}>
                   {t.tabs[name]}
@@ -122,6 +127,7 @@ export function AdminConfig({ initialTab }: { initialTab: ConfigTab }) {
                     {item === "affinity" && <ResetCardGrants isOn={isOn(config.affinity)} />}
                   </ItemCard>
                 ))}
+                {name === "sponsor" && <AdminSponsor />}
                 {name === "prices" && <AdminPrices />}
                 {name === "read_only" && <ReadOnlyCard items={config.read_only} />}
               </TabsContent>
@@ -130,6 +136,39 @@ export function AdminConfig({ initialTab }: { initialTab: ConfigTab }) {
         )}
       </OpenFormProvider>
     </AdminPage>
+  );
+}
+
+/**
+ * 内容列窄（< 32rem，手机上）时代替那排标签的下拉：一排放不下九个标签，滚动又会把琥珀色点藏到屏外。
+ * 选项后面照样跟琥珀色点；收起时只要有一类有覆盖没生效，框里也跟一个点，提醒点开看。
+ */
+function TabSelect({ tab, config, onChoose }: { tab: ConfigTab; config: Config; onChoose: (value: string) => void }) {
+  const items = CONFIG_TABS.map((name) => ({ value: name, label: t.tabs[name] }));
+  const someFailed = CONFIG_TABS.some((name) => tabHasFailure(config, name));
+  return (
+    <Select items={items} value={tab} onValueChange={(value) => value && onChoose(String(value))}>
+      <SelectTrigger aria-label={t.nav} className="w-full @lg:hidden">
+        <SelectValue>
+          {(value: ConfigTab) => (
+            <>
+              {t.tabs[value]}
+              {someFailed && <StatusDot variant="warning" label={t.someTabFailed} />}
+            </>
+          )}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {CONFIG_TABS.map((name) => (
+          <SelectItem key={name} value={name}>
+            <span className="flex items-center gap-1.5">
+              {t.tabs[name]}
+              {tabHasFailure(config, name) && <StatusDot variant="warning" label={t.tabFailed} />}
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -218,6 +257,7 @@ function shown(name: ItemName, field: string, value: FieldRow["env"]): string {
   if (field === "api_format") return t.imageFormats[String(value)] ?? String(value);
   if (name === "tts" && field === "model") return optionLabel(name, field, String(value));
   if (name === "limits" && value === 0) return t.unlimited;
+  if (field === "window_minutes") return t.minutes(String(value));
   return String(value);
 }
 
@@ -233,8 +273,9 @@ function fieldHint(name: ItemName, spec: FieldSpec, keysEditable: boolean, item?
     if (name === "proxy") return t.formHints.proxy_password;
     return name === "stt" ? t.formHints.stt_api_key : name === "judge" ? t.formHints.judge_api_key : t.apiKeyHint;
   }
-  if (name === "proxy") {
-    if (item?.unconfigured?.some((service) => service === spec.name)) return t.formHints.proxy_unconfigured;
+  if (name === "proxy" || name === "service_status") {
+    if (item?.unconfigured?.some((service) => service === spec.name)) return t.formHints[`${name}_unconfigured`];
+    if (name === "service_status") return t.formHints[`service_status_${spec.name}`];
     return t.formHints[`proxy_${spec.name}`];
   }
   if (spec.kind === "maxTokens") return t.maxTokensHint;
@@ -247,6 +288,8 @@ function fieldHint(name: ItemName, spec: FieldSpec, keysEditable: boolean, item?
 function optionLabel(name: ItemName, field: string, option: string): string {
   if (field === "protocol") return t.protocols[option as LLMProtocol] ?? option;
   if (field === "api_format") return t.imageFormats[option] ?? option;
+  if (field === "region") return t.regions[option] ?? option;
+  if (field === "window_minutes") return t.minutes(option);
   // 生图的模型：下拉里是官方模型的短名，最后一项是手填。
   if (name === "image" && field === "model") return option === CUSTOM_MODEL ? t.customModel : (t.imageModels[option] ?? option);
   // 语音合成的模型，和设置页一个叫法。
@@ -289,6 +332,21 @@ function ItemCard({
       {children}
     </AvailableItem>
   );
+}
+
+/**
+ * 向服务商查模型槽能用的模型（ADR-0027）：没填 key 时用正在生效的那把，只在它生效的地址上用。
+ * 还没填地址时是 null；不是模型槽是 undefined。
+ */
+function modelLister(name: ItemName, form: Form): ModelLister | null | undefined {
+  if (name !== "chat_llm" && name !== "memory_llm") return undefined;
+  const base_url = form.base_url?.trim() ?? "";
+  const api_key = form.api_key?.trim() ?? "";
+  if (!base_url) return null;
+  return {
+    key: `${name} ${form.protocol} ${base_url} ${api_key}`,
+    ask: () => listItemModels(name, { protocol: form.protocol, base_url, ...(api_key && { api_key }) }),
+  };
 }
 
 /**
@@ -505,7 +563,7 @@ function AvailableItem({
                     />
                   );
                 }
-                if (field.kind === "count") {
+                if (field.kind === "count" || field.kind === "positive") {
                   const hint = fieldHint(name, field, keysEditable);
                   return (
                     <Field key={field.name} data-invalid={problem ? true : undefined}>
@@ -516,7 +574,7 @@ function AvailableItem({
                         value={form[field.name] === "" ? null : Number(form[field.name])}
                         onChange={(count) => set(field.name)(count === null ? "" : String(count))}
                         min={1}
-                        max={MAX_COUNT}
+                        max={field.kind === "count" ? MAX_COUNT : undefined}
                         isIntegerOnly
                         isInvalid={problem !== null}
                       />
@@ -525,8 +583,10 @@ function AvailableItem({
                     </Field>
                   );
                 }
-                if (field.kind === "select") {
+                /** 一项下拉选择。 */
+                const selectField = () => {
                   const options = (field.options ?? []).map((o) => ({ value: o, label: optionLabel(name, field.name, o) }));
+                  const hint = fieldHint(name, field, keysEditable);
                   return (
                     <Field key={field.name}>
                       <FieldLabel htmlFor={fieldId}>{label}</FieldLabel>
@@ -546,9 +606,26 @@ function AvailableItem({
                           ))}
                         </SelectContent>
                       </Select>
+                      {hint && <FieldDescription>{hint}</FieldDescription>}
                     </Field>
                   );
+                };
+                // 模型的几项上面先放服务商和模型的下拉，选了填进协议、地址和模型名（ADR-0027）。
+                if (field.name === "protocol" && "base_url" in form && "model" in form) {
+                  return (
+                    <Fragment key={field.name}>
+                      <LLMProviderPicker
+                        id={fieldId}
+                        baseUrl={form.base_url}
+                        model={form.model}
+                        onPick={(pick) => setForm((f) => ({ ...f, ...pick }))}
+                        lister={modelLister(name, form)}
+                      />
+                      {selectField()}
+                    </Fragment>
+                  );
                 }
+                if (field.kind === "select" || field.kind === "minutes") return selectField();
                 const secret = field.kind === "secret";
                 const hint = fieldHint(name, field, keysEditable);
                 return (

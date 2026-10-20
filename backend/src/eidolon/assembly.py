@@ -3,8 +3,8 @@
 `build` makes every module the backend runs on from `Settings`: the store, the
 characters and the world setting and gift catalog beside them, the identity providers users sign in with, the chat and background models,
 the services users bring their own keys to, retrieval, memory, the conversation engine,
-usage limits and voice calls. It decides what is on. Retrieval needs the judge model, the
-embedder and the reranker all at hand, and memory is on only with retrieval, since only
+usage limits, voice calls and reach-outs. It decides what is on. Retrieval needs the judge
+model, the embedder and the reranker all at hand, and memory is on only with retrieval, since only
 retrieval finds memories again; judging her emotion during calls needs only the judge
 model, the same one; the
 background model is always at hand, being the chat model unless configured apart.
@@ -43,6 +43,7 @@ from eidolon.hot_words import hot_words
 from eidolon.randomness import Random, secure_random
 from eidolon.clock import Clock, utc_now
 from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings
+from eidolon.data_package import DataPackages
 from eidolon.embedding import EMBEDDING_TIMEOUT, Embedder, open_embedder
 from eidolon.engine import ConversationEngine
 from eidolon.identity import IdentityProvider, ProviderName, open_identity_providers
@@ -54,6 +55,7 @@ from eidolon.prices import Prices
 from eidolon.own_keys import LLMService, OwnImageService, OwnKeys, ProviderLLMService
 from eidolon.photos import Photos
 from eidolon.proxy import ProxyRoutes
+from eidolon.reach_outs import ReachOuts
 from eidolon.readings import load_readings, readings_path
 from eidolon.rerank import (
     FALLBACK_MODEL,
@@ -65,6 +67,8 @@ from eidolon.rerank import (
 )
 from eidolon.retrieval import Retrieval, open_reference_sources
 from eidolon.service_clients import ProviderClients, ServiceClients
+from eidolon.service_status import ServiceStatus, probes
+from eidolon.sponsor import Sponsor
 from eidolon.store import Store
 from eidolon.titles import Titles
 from eidolon.usage import UsageLimiter
@@ -105,6 +109,8 @@ class Backend:
     """The prices the dashboard estimates the deployer's costs at."""
     announcements: Announcements
     """What admins write for every user to see."""
+    sponsor: Sponsor
+    """The code users may scan to sponsor the deployment, where it is on."""
     affinities: Affinities
     """Every user's affinity with every character, where it is on."""
     gifts: Gifts
@@ -113,22 +119,34 @@ class Backend:
     """The database's backups, as the admin console runs them, and the record of each."""
     photos: Photos
     """The photos she sends with her replies, being generated."""
+    service_status: ServiceStatus
+    """Whether each of the deployer's services works now, as users are shown it."""
+    data_packages: DataPackages
+    """Exports users' data packages, and imports them."""
+    reach_outs: ReachOuts
+    """Has characters reach out to users once their time comes."""
     world: World | None = None
     """The world setting; None without its data file."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
     _keeping_fresh: asyncio.Task[None] | None = field(default=None, repr=False)
+    _probing: asyncio.Task[None] | None = field(default=None, repr=False)
+    _reaching_out: asyncio.Task[None] | None = field(default=None, repr=False)
 
     async def start(self) -> None:
         """What is done as the server starts, on its event loop: try the overrides of the
         configuration, falling back to `.env` where one fails; keep the price catalogs
-        fresh from now on, fetching them in the background."""
+        fresh from now on, fetching them in the background, try the services without
+        calls for their status, and have characters reach out once their time comes."""
         await self.config.start()
         self._keeping_fresh = asyncio.create_task(self.prices.catalog.keep_fresh())
+        self._probing = asyncio.create_task(self.service_status.keep_probing())
+        self._reaching_out = asyncio.create_task(self.reach_outs.keep_reaching_out())
 
     async def aclose(self) -> None:
         """Close what `build` opened, last opened first."""
-        if self._keeping_fresh is not None:
-            self._keeping_fresh.cancel()
+        for task in (self._keeping_fresh, self._probing, self._reaching_out):
+            if task is not None:
+                task.cancel()
         for close in reversed(self._closers):
             result = close()
             if result is not None:
@@ -197,6 +215,8 @@ def build(
     closers.append(prices.close)
     announcements = Announcements(settings.database_path, clock)
     closers.append(announcements.close)
+    sponsor = Sponsor(settings.database_path, clock)
+    closers.append(sponsor.close)
     backups = Backups(settings.database_path, clock, transport=backup_transport)
     closers.append(backups.aclose)
     image_client = None
@@ -249,6 +269,11 @@ def build(
                 r.api_key, r.model, r.base_url, routes.client("rerank", RERANK_TIMEOUT)
             )
             closers.append(reranker.aclose)
+    service_status = ServiceStatus(
+        activity, config,
+        probes(config, speech, next(iter(characters.values())).voice_id, embedder, reranker),
+        clock,
+    )
     embedder, reranker = metered_retrieval(activity, settings, embedder, reranker)
     # The judge model is the live configuration's: retrieval asks the one in effect at
     # each question, and each call judges her emotions on the one it connected with.
@@ -322,6 +347,11 @@ def build(
         gift_catalog, random or secure_random, store,
     )
     closers.append(gifts.close)
+    reach_outs = ReachOuts(
+        settings.database_path, store, engine, characters, config, affinities, activity, usage,
+        calls.in_call, clock, random or secure_random,
+    )
+    closers.append(reach_outs.close)
     config.on_change(gifts.notice)
     return Backend(
         settings=settings,
@@ -343,10 +373,16 @@ def build(
         config=config,
         prices=prices,
         announcements=announcements,
+        sponsor=sponsor,
         affinities=affinities,
         gifts=gifts,
         backups=backups,
         photos=photos,
+        service_status=service_status,
+        data_packages=DataPackages(
+            settings.database_path, store, memories, characters, gift_catalog, clock
+        ),
+        reach_outs=reach_outs,
         world=world,
         _closers=closers,
     )

@@ -80,7 +80,9 @@ def add_stats_routes(app: FastAPI, backend: Backend) -> None:
         idols = in_idol_order(backend.characters.values())
         affinity_on = backend.config.affinity_on
         return {
-            "days_known": days_since(signed_up),
+            # Since signing up, or since the first thing kept if earlier: conversations imported
+            # in a data package from another deployment (GLOSSARY.md「统计」).
+            "days_known": days_since(min([signed_up, *first.values()])),
             "visits": visits(per_day.keys(), today),
             "all_hours": by_hour(at for _, at in contacts),
             "heatmap": {

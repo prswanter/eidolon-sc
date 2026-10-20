@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MetadataList, MetadataListItem } from "@/components/app/admin/MetadataList";
-import { StatusDot } from "@/components/app/admin/StatusDot";
+import { StatusDot } from "@/components/app/StatusDot";
 import { Timestamp } from "@/components/app/admin/Timestamp";
 import { DashboardCard } from "@/components/admin/DashboardParts";
 import { Alert, AlertTitle } from "@/components/ui/alert";

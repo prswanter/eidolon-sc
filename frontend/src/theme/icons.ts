@@ -16,6 +16,9 @@ export { MessageCircleOff as EndedIcon } from "lucide-react";
 // 记忆页、设置页用的图标（ticket 06）。
 export { Trash2 as TrashIcon } from "lucide-react";
 
+// 看板长列表底下的「展开全部」「收起」。
+export { ChevronDown as ShowMoreIcon, ChevronUp as ShowLessIcon } from "lucide-react";
+
 // 后台导航用的图标。
 export {
   LayoutDashboard as DashboardIcon,
@@ -35,6 +38,9 @@ export { CircleCheck as SuccessIcon, X as CloseIcon } from "lucide-react";
 
 // 对话列表页首的公告铃铛（GLOSSARY.md「公告」）；后台导航的公告用 Megaphone。
 export { Bell as AnnouncementsBellIcon } from "lucide-react";
+
+// 对话列表页首铃铛旁边的服务状态（GLOSSARY.md「服务状态」）。
+export { Activity as ServiceStatusIcon } from "lucide-react";
 
 // 对话列表的搜索框；通话条右端「回到通话 ›」的箭头。
 export { ChevronRight as ForwardIcon, Search as SearchIcon } from "lucide-react";
@@ -63,9 +69,10 @@ export { Sparkles as DrawIcon, Sparkles as RareIcon } from "lucide-react";
 export { ArrowRight as BecomesIcon } from "lucide-react";
 export { Cookie as FoodIcon, CupSoda as DrinkIcon, Flower2 as FlowerIcon, Gem as TrinketIcon } from "lucide-react";
 
-// 设置一级的八类（档案、记忆、统计、通话用 PhoneIcon、外观、自带密钥、登录与数据、关于）；「关于」里新标签页打开的链接行尾的外链图标。
+// 设置一级的十类（档案、记忆、统计、通话用 PhoneIcon、搭话、外观、自带密钥、登录与数据、数据包、关于）和「关于」上面的「赞赏」；「关于」里新标签页打开的链接行尾的外链图标。
 export {
   BookHeart as MemoriesIcon,
+  HandHeart as SponsorIcon,
   ChartColumn as StatsIcon,
   CircleUser as ProfileIcon,
   ExternalLink as ExternalLinkIcon,
@@ -73,6 +80,8 @@ export {
   KeyRound as OwnKeysIcon,
   Palette as AppearanceIcon,
   LogIn as SignInIcon,
+  MessageCircleHeart as ReachOutsIcon,
+  Package as DataPackageIcon,
 } from "lucide-react";
 
 // 对话页首的好感度标识（GLOSSARY.md「好感度」「冷却」）：五档心形和冷却中的沙漏；

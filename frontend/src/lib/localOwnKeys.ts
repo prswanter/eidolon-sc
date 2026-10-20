@@ -49,7 +49,7 @@ export const IMAGE_MODELS = [
 export const DEFAULT_IMAGE_BASE_URL = "https://image.novelai.net";
 
 /** 阿里云百炼的 key 能用的地域，校验时由服务器判断出来：后端 `config.BailianRegion`。 */
-const BAILIAN_REGIONS = ["beijing", "singapore"] as const;
+export const BAILIAN_REGIONS = ["beijing", "singapore"] as const;
 export type BailianRegion = (typeof BAILIAN_REGIONS)[number];
 
 /** 自带的一个模型（后端 `OwnLLMInput`）：连接的四项，加上思考强度和额外请求参数，这两项没有就是不设置。 */

@@ -116,8 +116,7 @@ async def test_the_turn_that_cools_her_has_her_hang_up_once_she_has_said_it(
     assert {r: n for r, n in calls["by_result"].items() if n} == {"success": 1}
     assert {r: n for r, n in calls["end_reasons"].items() if n} == {"character_hung_up": 1}
     [mano] = board["affinity"]["characters"]
-    assert (mano["judged"], mano["cooldowns"], mano["hung_up"]) == (1, 1, 1)
-    assert mano["ended"] == {"cooldown": 0, "out_of_line": 0, "fed_up": 0}
+    assert (mano["judged"], mano["cooldowns"], mano["she_ended"]) == (1, 1, 1)
 
 
 async def test_out_of_line_twice_in_a_call_she_hangs_up_and_the_next_call_starts_over(

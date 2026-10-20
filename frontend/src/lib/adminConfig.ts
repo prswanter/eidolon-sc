@@ -4,6 +4,7 @@
 
 import { api, json } from "@/lib/api";
 import {
+  BAILIAN_REGIONS,
   FISH_AUDIO_MODELS,
   IMAGE_FORMATS,
   IMAGE_MODELS,
@@ -12,6 +13,7 @@ import {
   STT_PROVIDERS,
   type OwnService,
 } from "@/lib/localOwnKeys";
+import { STATUS_SERVICES } from "@/lib/serviceStatus";
 import { EFFORT_UNSET, effortOf, extraBodyText, parseExtraBody, type JsonObject } from "@/lib/reasoningEffort";
 
 export type ConfigStatus = "env" | "overridden" | "failed";
@@ -27,7 +29,9 @@ export type ItemName =
   | "rerank"
   | "limits"
   | "affinity"
-  | "proxy";
+  | "reach_outs"
+  | "proxy"
+  | "service_status";
 
 /** A model's extra request body is a JSON object; every other value is plain. */
 type Value = string | number | boolean | null | JsonObject;
@@ -47,7 +51,7 @@ export type ConfigItem = {
   follows_chat?: boolean;
   /** Thresholds: the model they hold for. */
   model?: string;
-  /** The proxy: the services this deployment has not configured, whose switches do nothing. */
+  /** The proxy and the service status: the services this deployment has not configured, whose switches do nothing. */
   unconfigured?: ProxiedService[];
 };
 
@@ -68,19 +72,21 @@ export function isAvailable(item: ConfigItem | UnavailableItem): item is ConfigI
 }
 
 /** The page's tabs, in order. */
-export const CONFIG_TABS = ["models", "voice", "image", "network", "limits", "prices", "read_only"] as const;
+export const CONFIG_TABS = ["models", "voice", "image", "network", "status", "limits", "sponsor", "prices", "read_only"] as const;
 
 export type ConfigTab = (typeof CONFIG_TABS)[number];
 
 /** The items under each tab, in the order it shows them. Every item is under exactly one tab;
- * the prices and the read-only items are not items, so their tabs list none and the page puts
- * their cards in itself. */
+ * sponsoring, the prices and the read-only items are not items, so their tabs list none and the
+ * page puts their cards in itself. */
 export const TAB_ITEMS: Record<ConfigTab, ItemName[]> = {
   models: ["chat_llm", "memory_llm", "judge", "judge_thresholds", "rerank"],
   voice: ["tts", "stt"],
   image: ["image"],
   network: ["proxy"],
-  limits: ["limits", "affinity"],
+  status: ["service_status"],
+  limits: ["limits", "affinity", "reach_outs"],
+  sponsor: [],
   prices: [],
   read_only: [],
 };
@@ -155,7 +161,7 @@ export type ProxiedService = (typeof PROXIED_SERVICES)[number];
  * model's protocol can write, or unset), an extra request body (a JSON object, or empty for
  * none), a probability or score from 0 to 1, a number of seconds, a limit (a whole number
  * from 1 up, or none: sent as 0), how many at a time (a whole number from 1 to `MAX_COUNT`),
- * or a switch (on or off, in the form as "true" or "false"). */
+ * how many (a whole number from 1 up), a switch (on or off, in the form as "true" or "false"), or minutes chosen from a list (sent as a number). */
 export type FieldKind =
   | "select"
   | "text"
@@ -170,7 +176,9 @@ export type FieldKind =
   | "seconds"
   | "limit"
   | "count"
-  | "switch";
+  | "positive"
+  | "switch"
+  | "minutes";
 
 /** The most photos the deployer's image key may generate at a time: the backend's `MAX_IMAGE_CONCURRENCY`. */
 export const MAX_COUNT = 10;
@@ -182,6 +190,9 @@ export const CUSTOM_MODEL = "custom";
 export function modelChoice(options: readonly string[], model: string): string {
   return options.includes(model) ? model : CUSTOM_MODEL;
 }
+
+/** How many of the latest minutes the service status may go by, as the backend takes them. */
+export const STATUS_WINDOWS = ["10", "30", "60"] as const;
 
 /** The limits, in the order they are shown. */
 export const LIMIT_FIELDS = [
@@ -266,12 +277,14 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
     tried: true,
   },
   judge: {
-    rows: ["provider", "model", "account_id", "emotion_timeout", "api_key"],
+    rows: ["provider", "model", "account_id", "workspace_id", "region", "emotion_timeout", "api_key"],
     secrets: ["api_key"],
     form: [
-      { name: "provider", kind: "select", options: ["jev", "cloudflare"] },
+      { name: "provider", kind: "select", options: ["jev", "cloudflare", "bailian"] },
       { name: "model", kind: "text" },
       { name: "account_id", kind: "optionalText" },
+      { name: "workspace_id", kind: "optionalText" },
+      { name: "region", kind: "select", options: BAILIAN_REGIONS },
       { name: "emotion_timeout", kind: "seconds" },
       { name: "api_key", kind: "secret" },
     ],
@@ -309,6 +322,16 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
     form: [{ name: "enabled", kind: "switch" }],
     tried: false,
   },
+  // 搭话（GLOSSARY.md「搭话」）：总开关，每位用户每天最多几次。不试调。
+  reach_outs: {
+    rows: ["enabled", "per_day"],
+    secrets: [],
+    form: [
+      { name: "enabled", kind: "switch" },
+      { name: "per_day", kind: "positive" },
+    ],
+    tried: false,
+  },
   // 网络代理（GLOSSARY.md「网络代理」）：总开关、地址、密码，每项服务一个开关。保存前把换了路线的服务连一遍。
   proxy: {
     rows: ["enabled", "url", "password", ...PROXIED_SERVICES],
@@ -320,6 +343,16 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
       ...PROXIED_SERVICES.map((name): FieldSpec => ({ name, kind: "switch" })),
     ],
     tried: true,
+  },
+  // 服务状态（GLOSSARY.md「服务状态」）：统计时段，每项服务显不显示。不试调。
+  service_status: {
+    rows: ["window_minutes", ...STATUS_SERVICES],
+    secrets: [],
+    form: [
+      { name: "window_minutes", kind: "minutes", options: STATUS_WINDOWS },
+      ...STATUS_SERVICES.map((name): FieldSpec => ({ name, kind: "switch" })),
+    ],
+    tried: false,
   },
 };
 
@@ -380,7 +413,17 @@ export function lockedOn(form: Form, field: string): boolean {
 
 export type Problem = {
   field: string;
-  reason: "required" | "maxTokens" | "effort" | "json" | "jsonObject" | "probability" | "seconds" | "limit" | "count";
+  reason:
+    | "required"
+    | "maxTokens"
+    | "effort"
+    | "json"
+    | "jsonObject"
+    | "probability"
+    | "seconds"
+    | "limit"
+    | "count"
+    | "positive";
 };
 
 export type Change = Record<string, string | number | boolean | null | JsonObject>;
@@ -396,7 +439,8 @@ export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { c
     const typed = (form[name] ?? "").trim();
     switch (kind) {
       case "select":
-        change[name] = form[name];
+        // 没选过的不发（判断模型的地域只有百炼用）。
+        if (form[name]) change[name] = form[name];
         break;
       case "text":
       case "modelChoice":
@@ -444,8 +488,15 @@ export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { c
         if (!/^[1-9]\d*$/.test(typed) || Number(typed) > MAX_COUNT) refuse(name, "count");
         else change[name] = Number(typed);
         break;
+      case "positive":
+        if (!/^[1-9]\d*$/.test(typed)) refuse(name, "positive");
+        else change[name] = Number(typed);
+        break;
       case "switch":
         change[name] = form[name] === "true";
+        break;
+      case "minutes":
+        change[name] = Number(form[name]);
         break;
       case "seconds": {
         const value = Number(typed);
@@ -485,6 +536,20 @@ export async function saveItem(name: ItemName, change: Change): Promise<AdminCon
       body: JSON.stringify(change),
     }),
   );
+}
+
+/** The models the service offers the key, as it lists them, for a model slot to pick one from: the key
+ * in effect now if none is given, at its own address only (ADR-0027). */
+export async function listItemModels(
+  name: "chat_llm" | "memory_llm",
+  asked: { protocol: string; base_url: string; api_key?: string },
+): Promise<string[]> {
+  const listed = await api(`/api/admin/config/${name}/models`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(asked),
+  });
+  return (await json<{ models: string[] }>(listed)).models;
 }
 
 /** Back to `.env`'s, from the next turn and call on. */

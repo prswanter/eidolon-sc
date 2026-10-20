@@ -107,6 +107,22 @@ export function shareFileName(now: Date): string {
   return `eidolon-stats-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.png`;
 }
 
+/** Whether a font face's `unicode-range` has any of the characters of `text`, so that the picture
+ * needs it; one without a range has them all. Ranges are `U+4E00`, `U+4E00-9FFF` or `U+4??`. */
+export function coversText(unicodeRange: string, text: string): boolean {
+  if (!unicodeRange.trim()) return true;
+  const ranges = unicodeRange.split(",").flatMap((part) => {
+    const match = /^u\+([0-9a-f?]+)(?:-([0-9a-f]+))?$/i.exec(part.trim());
+    if (!match) return [];
+    const [, from, to] = match;
+    return [[parseInt(from.replace(/\?/g, "0"), 16), parseInt(to ?? from.replace(/\?/g, "f"), 16)]];
+  });
+  return [...text].some((char) => {
+    const code = char.codePointAt(0)!;
+    return ranges.some(([from, to]) => from <= code && code <= to);
+  });
+}
+
 /** The site's address from the page's origin, so that no domain is written in. */
 export function siteAddress(origin: string): SiteAddress {
   return { shown: origin.replace(/^https?:\/\//, ""), landing: `${origin}/` };

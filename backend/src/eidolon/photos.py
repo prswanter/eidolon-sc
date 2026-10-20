@@ -6,8 +6,9 @@ the user's own image generation, or the deployer has image generation and the us
 on photos is not 0 (`usage`); only then is the judge
 model asked whether the user asks for one, and only where it says so is she told she can
 send one, in the system message that changes from turn to turn (ADR-0020), or, in the
-coldest tier of her affinity, that she does not want to. A turn that could not have one is
-as it was before there were photos.
+coldest tier of her affinity, that she does not want to. In a turn that could not have one,
+she is told she cannot send photos (`CANNOT_SEND`), the judge model never asked, so that she
+never says she sent one that never comes.
 
 The user's photos are limited an hour, text turns' and calls' alike. A turn only checks
 there is one left (`eligibility`), taking none; with none left, she is told she cannot send
@@ -106,6 +107,12 @@ USED_UP = """\
 制作人在要你发一张照片，但你这会儿发不了。用你自己的话推掉，不要写照片标签。"""
 """What she is told in a turn the user asks for a photo in, their photos this hour used up:
 she does not send one."""
+
+CANNOT_SEND = """\
+# 照片
+你发不了照片。制作人要你发照片时，用你自己的话推掉，不要写照片标签。"""
+"""What she is told in every turn that could not have a photo, whether or not the user asks
+for one: the judge model is not asked."""
 
 NOT_RECEIVED = """\
 # 没发出去的照片

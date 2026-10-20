@@ -1,12 +1,16 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
 import { PROSE_WIDTH } from "@/components/app/SettingsSection";
+import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { copy } from "@/i18n";
+import { foldedCount, formatCount } from "@/lib/dashboard";
 import { cn } from "@/lib/utils";
+import { ShowLessIcon, ShowMoreIcon } from "@/theme/icons";
 
-// 看板各块共用的零件：一组数字卡、装一块内容的 Card、比例条，以及窄屏上代替表格的 divide-y 行。
+// 看板各块共用的零件：一组数字卡、装一块内容的 Card、比例条、收起的长列表，以及窄屏上代替表格的 divide-y 行。
 
 /**
  * 一组数字卡，上面一行 Caption 写这组数字是什么时候的（「此刻」「30 天内」）。卡片排成格子：
@@ -66,27 +70,28 @@ export function DashboardCard({
   );
 }
 
-/** 看板上的一组（「用量」「花费」）：h2 和一句说明，下面是这一组的各张卡。 */
+/**
+ * 看板上的一组（「用量」「好感度」「花费」），各占一个分组标签：h2 只给读屏（标签上已经写着组名，再显示一遍是重复），
+ * 有说明时说明照常显示在最上面；下面是这一组的各张卡。
+ */
 export function DashboardGroup({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-        {hint && <p className={cn(PROSE_WIDTH, "text-sm text-muted-foreground")}>{hint}</p>}
-      </header>
+      <h2 className="sr-only">{title}</h2>
+      {hint && <p className={cn(PROSE_WIDTH, "text-sm text-muted-foreground")}>{hint}</p>}
       {children}
     </section>
   );
 }
 
-/** 两张卡一排（宽屏），更窄时上下排。 */
+/** 两张卡一排（宽屏），同一排拉成等高、内容从顶上排；更窄时上下排。 */
 export function CardPair({ children }: { children: ReactNode }) {
-  return <div className="grid items-start gap-6 lg:grid-cols-2">{children}</div>;
+  return <div className="grid gap-6 lg:grid-cols-2">{children}</div>;
 }
 
 /**
  * 表格和它窄屏上的行，按视口宽度用 CSS 切换（不靠 JS，服务端渲染出来就对）：`at="lg"`（默认，≥ 1024px）
- * 给三四列的小表；七列的宽表（服务健康、按模型的花费）用 `at="xl"`（≥ 1280px）。侧栏常驻时占去 16rem，
+ * 给六列以内的表；更宽的表（服务健康、按模型的花费）用 `at="xl"`（≥ 1280px）。侧栏常驻时占去 16rem，
  * 视口到这两档内容区才放得下（DESIGN.md「表格」）。
  */
 export function TableOrRows({ at = "lg", table, rows }: { at?: "lg" | "xl"; table: ReactNode; rows: ReactNode }) {
@@ -143,5 +148,26 @@ export function RowList({ rows }: { rows: Row[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * 长列表（按角色的两张表）默认只露前几行（`foldedCount`），底下一个 ghost 的「展开全部 N 位」，展开后变成「收起」。
+ * `children` 拿到眼前该显示的行，表格和窄屏的行用同一份。
+ */
+export function Folded<T>({ rows, children }: { rows: T[]; children: (shown: T[]) => ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const folded = foldedCount(rows.length);
+  const words = copy.admin.dashboard.fold;
+  if (folded === rows.length) return children(rows);
+  return (
+    <div className="flex flex-col items-start gap-2">
+      <div className="self-stretch">{children(open ? rows : rows.slice(0, folded))}</div>
+      {/* 手机上撑到 44px 的触控区。 */}
+      <Button variant="ghost" size="sm" aria-expanded={open} onClick={() => setOpen(!open)} className="max-md:min-h-11">
+        {open ? <ShowLessIcon data-icon="inline-start" /> : <ShowMoreIcon data-icon="inline-start" />}
+        {open ? words.less : words.more(formatCount(rows.length))}
+      </Button>
+    </div>
   );
 }

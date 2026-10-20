@@ -12,9 +12,10 @@
 > | 文字对话 | `CHAT_LLM_*` |
 > | 语音通话 | `FISH_AUDIO_API_KEY`，加语音识别的 key：`SONIOX_API_KEY`（默认），或 `STT_PROVIDER=bailian` 加 `DASHSCOPE_API_KEY` |
 > | 剧情库（同步或导入） | 向量化的 key：`SILICONFLOW_API_KEY`（默认），或 `EMBEDDING_PROVIDER=gemini` 加 `GEMINI_API_KEY` |
-> | 检索与记忆 | 向量化的 key、`SILICONFLOW_API_KEY`（重排），加判断模型：`JEV_API_KEY`（默认），或 `JUDGE_PROVIDER=cloudflare` 加 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` |
+> | 检索与记忆 | 向量化的 key、`SILICONFLOW_API_KEY`（重排），加判断模型：`JEV_API_KEY`（默认），或 `JUDGE_PROVIDER=cloudflare` 加 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`，或 `JUDGE_PROVIDER=bailian` 加 `BAILIAN_JUDGE_API_KEY`、`BAILIAN_JUDGE_WORKSPACE_ID` |
 > | 好感度和礼物 | 判断模型（开关默认打开） |
 > | 照片 | 判断模型，加生图的 key：`NOVELAI_API_KEY` |
+> | 搭话 | `EIDOLON_REACH_OUTS=1`（默认关） |
 > | 立绘与落地页的招呼 | `EIDOLON_STAND_ASSETS_URL`，以及存放素材的存储桶 |
 > | Google / GitHub 登录 | `GOOGLE_CLIENT_*`、`GITHUB_CLIENT_*` |
 
@@ -32,9 +33,11 @@
 - [记忆](#记忆)
 - [好感度和礼物](#好感度和礼物)
 - [照片](#照片)
+- [搭话](#搭话)
 - [登录、用户与限额](#登录用户与限额)
 - [自带密钥](#自带密钥)
 - [网络代理](#网络代理)
+- [服务状态](#服务状态)
 - [后台](#后台)
 - [命令行速查](#命令行速查)
 
@@ -294,14 +297,15 @@ docker compose exec backend eidolon reembed
 
 判断模型每个回合判断要不要检索、检索什么，打开了[好感度](#好感度和礼物)时还判断这句话让好感度怎样变化；通话中还判断每段回复的情绪。用 `JUDGE_PROVIDER` 选一家，一家出错时不会换用另一家。
 
-| | Jev（默认） | Clef-flash | Clef |
-|---|---|---|---|
-| 设置 | `JEV_API_KEY` | `JUDGE_PROVIDER=cloudflare` | 再加 `CLOUDFLARE_JUDGE_MODEL=clef` |
-| 价格（每百万输入 token，输出不收费） | $0.042 | $0.09 | $0.24 |
-| 每天的免费额度 | 无 | 约 2,000 次判断（好感度开着时约 860 次） | 约 750 次判断（好感度开着时约 320 次） |
+| | Jev（默认） | Clef-flash | Clef | 百炼决策模型 |
+|---|---|---|---|---|
+| 设置 | `JEV_API_KEY` | `JUDGE_PROVIDER=cloudflare` | 再加 `CLOUDFLARE_JUDGE_MODEL=clef` | `JUDGE_PROVIDER=bailian` |
+| 价格（每百万输入 token，输出不收费） | $0.042 | $0.09 | $0.24 | 预览版限时免费 |
+| 每天的免费额度 | 无 | 约 2,000 次判断（好感度开着时约 860 次） | 约 750 次判断（好感度开着时约 320 次） | 未公布 |
 
 - **Jev**：默认经 [OpenRouter](https://openrouter.ai/typesafe/jev-1.13) 调用，`JEV_API_KEY` 填 OpenRouter 的 key。也可以把 `JEV_BASE_URL` 换成 Vercel AI Gateway 或 TypeSafe 直连，写法见 `.env.example`。
 - **Clef 和 Clef-flash**：Cloudflare 的判断模型，直连 Workers AI。Clef 的检索判断更准（在仓库的评测集上 94% 对 87%），但贵将近 3 倍。公开部署应开 Workers Paid：免费额度用完后，当天的判断都按失败处理。凭证怎么取见 `.env.example`。
+- **百炼决策模型**：阿里云百炼的 `decision-model-preview`，经业务空间的专属地址调用，延迟最低。检索判断和 Clef-flash 相当（89%），但好感度的判断偏高、分不清聊照片和要照片，所以只适合关了[好感度](#好感度和礼物)的部署；开着好感度时用 Jev。业务空间 ID 和 key 怎么取见 `.env.example`。
 - **阈值**：判断的阈值按模型写在代码里，用 `eidolon eval judge` 在仓库的评测集上定出（见 [`deploy.md`](deploy.md) 的「校准判断模型阈值」）。
 
 ```mermaid
@@ -346,7 +350,7 @@ flowchart LR
 
 制作人明确要她发照片时，她在回复里发来一张拍到她本人的照片，文字对话和通话里都一样，一个回合最多一张。是不是在要照片由判断模型认，拍什么、拍不拍由她决定：好感度在冷淡这一档时她不发，其余时候也可以按情境推掉；她不会主动发。照片由生图服务按她的外貌和当时的情境生成，只有全年龄的内容（[ADR-0023](adr/0023-photos-all-ages-without-image-check.md)）；照片存在数据库里，只有用户本人能看，管理者也看不到，随所在的对话一起删除，也会进备份（[ADR-0024](adr/0024-photos-stored-in-the-database.md)）。
 
-- **开启**：要有判断模型，再加部署者的生图（填 `NOVELAI_API_KEY`）或用户自带的生图。**没有判断模型的部署没有照片**，自带的生图也填不进去（提示「这个部署发不了照片」）。都没有时，她不知道自己能发照片，一切和没有这项功能时一样。
+- **开启**：要有判断模型，再加部署者的生图（填 `NOVELAI_API_KEY`）或用户自带的生图。**没有判断模型的部署没有照片**，自带的生图也填不进去（提示「这个部署发不了照片」）。都没有时，她知道自己发不了照片，用户要时她用自己的话推掉；这句说明每个回合都带，不问判断模型。
 - **角色**：`characters.toml` 里要有 `photo_tag`（她的角色 tag，Danbooru 的写法、小写）和 `photo_appearance`（只写发色、发型、瞳色的外貌 tag），两项都配了她才能发，缺一项时启动会警告。现有 28 位都已配好。
 
 接口形式用 `NOVELAI_API_FORMAT` 二选一，不会自动探测：
@@ -388,6 +392,14 @@ flowchart LR
 > - **NovelAI 的条款禁止把一个订阅给公众共用。** 代码不拦官方地址，拿官方 token 对公众开放由部署者自己负责。
 > - **中转随时可能被封、断掉。** 断掉时照片发不出来，回合照常。
 > - 用户自带的 token 或中转，由用户自己遵守那项服务的条款（例如年龄、用途），见使用条款的「自带密钥」。
+
+## 搭话
+
+用户一阵子没来时，角色会在当前对话里先说几句，接着最近聊过的事或她记得的近况；越亲近来得越早，冷淡、疏远和冷却中不来，夜里也不来（[ADR-0026](adr/0026-reach-outs-are-not-turns.md)）。用户可以在设置的「搭话」里关掉。
+
+- **开关**：默认关。`.env` 里设 `EIDOLON_REACH_OUTS=1` 打开，也可以在后台配置页的「搭话」卡开关，后台改的优先于 `.env`。
+- **每天上限**：默认每位用户每天最多 3 次（按用户档案里的时区划天，没填时区按北京时间），在同一张卡里改。
+- **费用**：用部署者的对话模型生成，花费由部署者出；用户自带了 LLM 也一样。不计入用户的限额。
 
 ## 登录、用户与限额
 
@@ -461,7 +473,7 @@ EIDOLON_PROXY_SERVICES=chat_llm,tts,stt
 |---|---|
 | `chat_llm` | 扮演角色的 LLM（文字和通话） |
 | `memory_llm` | 后台模型（跟随扮演角色的 LLM 时也要单独列） |
-| `judge` | 判断模型（Jev 或 Cloudflare） |
+| `judge` | 判断模型（Jev、Cloudflare 或阿里云百炼） |
 | `embedding` | 向量化 |
 | `rerank` | 重排 |
 | `tts` | 语音合成（Fish Audio） |
@@ -477,14 +489,29 @@ EIDOLON_PROXY_SERVICES=chat_llm,tts,stt
 - **自带的 LLM 只有连已知服务商时才走代理**：用户自带的 LLM 地址是用户自己填的，可能指向服务器所在的内网，而经过代理时，服务器查不到实际连到了哪里。所以只有服务地址的主机名属于已知服务商时才交给代理：价格目录（models.dev，见部署文档的[花费估算用的单价](deploy.md#花费估算用的单价)）里写了服务地址的服务商，加上代码里认得的几家（OpenAI、Anthropic、Google Gemini、xAI、Mistral、Cohere、Groq、Cerebras、DeepInfra、Together、Perplexity、Venice）和 OpenRouter；IP 地址、`localhost` 不算。其他地址照旧直连，并检查是不是公网地址（[ADR-0022](adr/0022-own-llms-through-the-proxy-only-to-known-providers.md)）。价格目录拉不到时，只认代码里的那几家。自带的生图同理，已知服务商只有 NovelAI 官方一家。
 - **后台可以改**：后台配置页的「网络」标签里有「网络代理」，可以开关代理、改地址和逐项选择，不用重启，从下一次请求起生效（进行中的回合和通话也是，已经连上的语音连接不断）。保存前把换了路线的部署者服务按新路线各连一次（用户自带的几项手里没有 key，不试），有一项连不上就不保存；服务器重启时连不上，回退到 `.env` 的值并在后台标出来。地址里的密码和 key 一样加密保存，没有 `EIDOLON_SECRET_KEY` 时带密码的地址只能在 `.env` 里改。
 
+## 服务状态
+
+对话列表铃铛旁边有一个「服务状态」按钮，登录的用户点开能看到各项服务现在正不正常：正常、不稳定、故障或最近没有调用。有服务不正常时，按钮上有一个红点或琥珀色点。
+
+```sh
+EIDOLON_STATUS_SERVICES=chat_llm,tts,stt
+EIDOLON_STATUS_WINDOW_MINUTES=30
+```
+
+- **怎么算**：按统计时段（`EIDOLON_STATUS_WINDOW_MINUTES`，10、30 或 60 分钟，默认 30）里用部署者 key 的调用算出错率：低于 5% 正常，5%～50% 不稳定，50% 以上故障。用户自带密钥的调用不算。
+- **空闲时试一下**：时段里没有调用的服务，后台用最小的真实请求试一下：LLM 只要一个字，向量化和重排几个字，判断模型和后台试调一样，语音合成合成两个字，语音识别只做不花钱的检查。失败马上重试一次，还失败算故障。每项服务每个时段最多试两次，花费几乎为零；试的这一下不进运行记录，看板的用量和花费不算它。生图每张都要花钱，不试，没有调用时显示「最近没有调用」。
+- **显示哪几项**：`EIDOLON_STATUS_SERVICES` 逗号分隔，名字同「网络代理」表里的前八项；不填或 `all` 是全部，`none` 是都不显示（这时没有按钮）。部署里没配的服务自动不显示。
+- **后台可以改**：后台配置页的「服务状态」标签可以逐项选择、换统计时段，保存后立刻生效。
+- **通话里的语音**：通话中的语音合成和识别要等这通电话结束才写进运行记录，所以正在打的电话要到挂断以后才反映到状态上。
+
 ## 后台
 
 在 `.env` 的 `EIDOLON_ADMINS` 里列出管理者的登录方式标识（如 `github:12345`，用 `eidolon user list` 查），重建后端后，这些用户的设置「登录与数据」里会出现「进入后台」（[ADR-0013](adr/0013-admin-console-overrides-env.md)）。不填就没有后台，其他人访问 `/admin` 得到 404。
 
 | 页面 | 做什么 |
 |---|---|
-| 看板（`/admin`） | 按服务看调用次数、出错率和延迟；活跃用户、回合和通话的数量与趋势、每位角色的用量、进行中的通话；好感度开着时，判断结果、冷却和角色挂断的合计，以及按角色的统计；按单价估算部署者的花费 |
-| 配置（`/admin/config`） | 修改扮演角色的 LLM 和后台模型、语音合成、语音识别、生图、判断模型、重排阈值、限额、免限额密钥、单次通话上限、历史回合数、好感度和礼物的开关（以及给所有用户发重置卡）、网络代理和单价 |
+| 看板（`/admin`） | 按服务看调用次数、出错率和延迟；活跃用户、回合和通话的数量与趋势、每位角色的用量、进行中的通话；好感度开着时，判断结果和冷却的合计，以及按角色的加分、减分、冷却和她挂断或结束对话的次数；搭话开着时，搭了几次、失败几次、被回的占比；按单价估算部署者的花费 |
+| 配置（`/admin/config`） | 修改扮演角色的 LLM 和后台模型、语音合成、语音识别、生图、判断模型、重排阈值、限额、免限额密钥、单次通话上限、历史回合数、好感度和礼物的开关（以及给所有用户发重置卡）、搭话的开关和每天上限、网络代理、服务状态和单价 |
 | 用户（`/admin/users`） | 搜索用户，看登录方式和近期用量；封禁、解除封禁、单独设限额、删除 |
 
 - **覆盖 `.env`**：后台改过的项存在数据库里，优先于 `.env`，不用重启。保存前会先试调，试不通就不保存。进行中的通话按接通时的配置打完。

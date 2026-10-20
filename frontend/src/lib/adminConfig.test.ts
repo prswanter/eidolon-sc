@@ -241,6 +241,16 @@ describe("formOf and changeOf", () => {
     expect(changeOf(ITEM_SPECS.judge, { ...judge, emotion_timeout: "1.5" }, true)).toEqual({
       change: { provider: "jev", model: "typesafe/jev-1.13", emotion_timeout: 1.5 },
     });
+    // 百炼的业务空间和地域：没填、没选的不发，由服务器沿用或取默认的北京。
+    const bailian = { ...judge, provider: "bailian", model: "decision-model-preview", emotion_timeout: "1.5" };
+    expect(changeOf(ITEM_SPECS.judge, { ...bailian, workspace_id: " llm-ws1 ", region: "singapore" }, true)).toEqual({
+      change: {
+        provider: "bailian", model: "decision-model-preview", workspace_id: "llm-ws1", region: "singapore", emotion_timeout: 1.5,
+      },
+    });
+    expect(changeOf(ITEM_SPECS.judge, { ...bailian, workspace_id: "", region: "" }, true)).toEqual({
+      change: { provider: "bailian", model: "decision-model-preview", emotion_timeout: 1.5 },
+    });
   });
 });
 
@@ -426,6 +436,23 @@ describe("image", () => {
     const listed = image.form.find((field) => field.name === "model")?.options ?? [];
     expect(modelChoice(listed, "nai-diffusion-4-5-full")).toBe("nai-diffusion-4-5-full");
     expect(modelChoice(listed, "relay-model")).toBe(CUSTOM_MODEL);
+  });
+});
+
+describe("reach-outs", () => {
+  const spec = ITEM_SPECS.reach_outs;
+
+  it("send the switch and how many a day, a whole number from 1 up", () => {
+    const form = formOf(spec, { enabled: false, per_day: 3 });
+    expect(form).toEqual({ enabled: "false", per_day: "3" });
+    expect(changeOf(spec, { enabled: "true", per_day: " 12 " }, true)).toEqual({
+      change: { enabled: true, per_day: 12 },
+    });
+    for (const bad of ["0", "", "1.5", "-2"]) {
+      expect(changeOf(spec, { ...form, per_day: bad }, true), bad).toEqual({
+        problems: [{ field: "per_day", reason: "positive" }],
+      });
+    }
   });
 });
 

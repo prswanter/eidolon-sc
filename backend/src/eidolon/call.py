@@ -140,6 +140,7 @@ from eidolon.own_keys import (
     OwnKeys,
     Service,
 )
+from eidolon.greetings import FISH_TTS_HTTP_URL
 from eidolon.proxy import ProxiedWebsocket, ProxyRoutes, masked, open_client
 from eidolon.readings import Reading, pronunciation_dictionary
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
@@ -288,6 +289,11 @@ class Speech(Protocol):
     async def check_tts(self, api_key: str, model: FishAudioModel, *, own: bool) -> None:
         """Raise OwnKeyRejected saying why, unless `api_key` works for Fish Audio with
         `model`."""
+        ...
+
+    async def voice_a_word(self, api_key: str, model: FishAudioModel, voice_id: str) -> None:
+        """Have Fish Audio voice a word with `model` in `voice_id`, on the deployer's
+        `api_key`, as the service status tries it; raises whatever says why it did not."""
         ...
 
 
@@ -673,6 +679,7 @@ class SpeechServices:
 
     SONIOX_MODELS_URL = "https://api.soniox.com/v1/models"
     FISH_CREDIT_URL = "https://api.fish.audio/wallet/self/api-credit"
+    A_WORD = "在吗"
 
     def stt(self, key: SttKey, *, own: bool) -> Hearing:
         # Either decides where an utterance starts and ends; the turn processor turns its
@@ -735,6 +742,18 @@ class SpeechServices:
                 f"这个 key 的 API 余额是 0，用不了付费的 {model}："
                 f"先去 Fish Audio 充值，或改用 {DEFAULT_FISH_AUDIO_MODEL}"
             )
+
+    async def voice_a_word(self, api_key: str, model: FishAudioModel, voice_id: str) -> None:
+        """Over Fish Audio's HTTP API, as the greetings are voiced, in mp3."""
+        async with open_client(self._proxy("tts", False)(), httpx.Timeout(30, connect=10)) as client:
+            res = await client.post(
+                FISH_TTS_HTTP_URL,
+                headers={"Authorization": f"Bearer {api_key}", "model": model},
+                json={"text": self.A_WORD, "reference_id": voice_id, "format": "mp3"},
+            )
+        res.raise_for_status()
+        if not res.content:
+            raise RuntimeError("Fish Audio 没有返回音频")
 
     def _proxy(self, service: Literal["tts", "stt"], own: bool) -> Callable[[], str | None]:
         """Where a connection of `service` on a user's `own` key or the deployer's goes
@@ -1074,6 +1093,10 @@ class Calls:
     def in_progress(self) -> int:
         """How many calls there are now, connected or still connecting."""
         return len(self._live)
+
+    def in_call(self, conversation_id: str) -> bool:
+        """Whether there is a call in the conversation now, connected or still connecting."""
+        return any(live.conversation_id == conversation_id for live in list(self._live))
 
     async def hang_up(self, user_id: str, reason: CallEndReason = "deleted") -> None:
         """Hang up the user's calls, for `reason`, and wait for them to end; a reply in

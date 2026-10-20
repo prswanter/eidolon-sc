@@ -38,10 +38,11 @@ still list and delete the memories already kept.
 import asyncio
 import json
 import logging
+import sqlite3
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -73,6 +74,10 @@ CANDIDATES = 12
 """How many of the user's memories nearest the turn the reranker is offered."""
 MAX_FOUND = 3
 """The most memories one turn's prompt carries, after reranking."""
+LATELY = timedelta(days=14)
+"""How long ago what she reaches out with as his news may have been written down."""
+MAX_LATEST = 5
+"""The most of his news she reaches out with, besides what is found."""
 ANOTHER_IDOL = "事务所的另一位偶像"
 """Who a memory was told to, when that character has been removed from the configuration."""
 
@@ -115,6 +120,63 @@ class Memory:
     """When it was told, as an ISO timestamp in UTC."""
     superseded_by: int | None = None
     """The memory that superseded it, None while it holds (ADR-0014)."""
+    conversation_id: str | None = None
+    """The conversation it was told in; None if that is not known or no longer there."""
+
+
+PackageKey = int | str
+"""What a data package calls one of its memories: a key within the package only."""
+
+
+@dataclass(frozen=True)
+class CarriedMemory:
+    """A memory carried in by a data package (GLOSSARY.md「数据包」): `key` and
+    `superseded_by` are keys in the package, not ids here."""
+
+    key: PackageKey
+    source_character_id: str
+    text: str
+    created_at: str
+    superseded_by: PackageKey | None
+    conversation_id: str | None
+    """The conversation here it was told in, None if it is not here."""
+
+
+def add_carried(db: sqlite3.Connection, user_id: str, carried: Sequence[CarriedMemory]) -> int:
+    """Add the memories `carried` to the user's through `db`, in the caller's transaction;
+    returns how many were new. One whose text the user already has is not added again; what
+    supersedes it, or what it says supersedes it, is the one already here. The new ones are
+    superseded as the package says, by new ones or ones already here; those already here are
+    left as they are, their superseding too. Their source characters are kept as they are,
+    here or not. They are embedded afterwards, outside the transaction (`embed_carried`)."""
+    ids: dict[PackageKey, int] = {}
+    new: list[CarriedMemory] = []
+    for memory in carried:
+        kept = db.execute(
+            "SELECT id FROM memories WHERE user_id = ? AND text = ?", (user_id, memory.text)
+        ).fetchone()
+        if kept is not None:
+            ids[memory.key] = kept[0]
+            continue
+        cursor = db.execute(
+            "INSERT INTO memories"
+            " (user_id, source_character_id, conversation_id, text, created_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (user_id, memory.source_character_id, memory.conversation_id, memory.text,
+             memory.created_at),
+        )
+        assert cursor.lastrowid is not None
+        ids[memory.key] = cursor.lastrowid
+        new.append(memory)
+    db.executemany(
+        "UPDATE memories SET superseded_by = ? WHERE id = ?",
+        [
+            (ids[m.superseded_by], ids[m.key])
+            for m in new
+            if m.superseded_by is not None and ids[m.superseded_by] != ids[m.key]
+        ],
+    )
+    return len(new)
 
 
 @dataclass(frozen=True)
@@ -183,7 +245,7 @@ class Memories:
         are writing down (unless that takes too long). Not named `list`, which would
         shadow the builtin in this class's annotations."""
         await self._settle(user_id)
-        return list(reversed(await asyncio.to_thread(self._all, user_id)))
+        return list(reversed(await asyncio.to_thread(self.kept, user_id)))
 
     async def delete(self, user_id: str, memory_id: int) -> bool:
         """Forget one of the user's memories; False if they have no such memory."""
@@ -204,12 +266,16 @@ class Memories:
         await self._settle(user_id)
 
     async def embed_missing(
-        self, batch: int = REEMBED_BATCH, progress: Callable[[int], None] | None = None
+        self,
+        batch: int = REEMBED_BATCH,
+        progress: Callable[[int], None] | None = None,
+        *,
+        user_id: str | None = None,
     ) -> int:
-        """Embed every user's memories that have no vector from the embedder given, `batch`
-        at a time; returns how many it embedded, telling `progress` the count so far after
-        each batch. Interrupted, what it finished is kept; a memory deleted meanwhile gets
-        no vector."""
+        """Embed every user's memories, or only those of `user_id`, that have no vector from
+        the embedder given, `batch` at a time; returns how many it embedded, telling
+        `progress` the count so far after each batch. Interrupted, what it finished is kept;
+        a memory deleted meanwhile gets no vector."""
         embedder = self._reembedder()
         model = embedder.model
         done = 0
@@ -217,10 +283,11 @@ class Memories:
         while True:
             with self._lock:
                 rows = self._db.execute(
-                    "SELECT id, user_id, text FROM memories m WHERE id > ? AND NOT EXISTS"
+                    "SELECT id, user_id, text FROM memories m WHERE id > ?"
+                    " AND (? IS NULL OR user_id = ?) AND NOT EXISTS"
                     " (SELECT 1 FROM memory_vectors v WHERE v.memory_id = m.id AND v.model = ?)"
                     " ORDER BY id LIMIT ?",
-                    (after, model, batch),
+                    (after, user_id, user_id, model, batch),
                 ).fetchall()
             if not rows:
                 return done
@@ -238,6 +305,25 @@ class Memories:
             after = rows[-1][0]
             if progress is not None:
                 progress(done)
+
+    def embed_carried(self, user_id: str) -> None:
+        """Embed, in the background, the user's memories that have no vector yet, as those
+        carried in by a data package (`add_carried`), with the deployer's embedder; those it
+        fails to embed are embedded the next time the user's memories are searched. Their
+        turns, listing and deleting wait briefly for it, as for what is being written down.
+        Nothing to do while memory is off."""
+        if self._embedder is None:
+            return
+
+        async def embed() -> None:
+            try:
+                await self.embed_missing(user_id=user_id)
+            except Exception:
+                log.warning("embedding carried memories failed; they are embedded when"
+                            " searched", exc_info=True)
+
+        task = asyncio.create_task(embed(), context=detached())
+        self._hold(user_id, task)
 
     def forget_other_models(self) -> int:
         """Drop every memory's vector not from the embedder given; returns how many there
@@ -284,28 +370,75 @@ class Memories:
         query_text: str,
         candidates: Sequence[Memory],
     ) -> str | None:
+        found = await self._relevant(query_text, candidates)
+        character = self._characters[conversation.character_id]
+        return _memories_prompt(found, character, timezone, _FOUND) if found else None
+
+    async def _relevant(self, query_text: str, candidates: Sequence[Memory]) -> list[Memory]:
+        """As many as `MAX_FOUND` of the `candidates` relevant to `query_text`, most relevant
+        first; none if memory is off or reranking failed."""
         if (services := self._services) is None or not candidates:
-            return None
+            return []
         try:
             best = await services.reranker.rerank(
                 query_text, [m.text for m in candidates], len(candidates)
             )
         except RerankError:
-            log.warning("finding memories failed; replying without them", exc_info=True)
-            return None
+            log.warning("finding memories failed; going on without them", exc_info=True)
+            return []
         min_relevance = services.min_relevance()
-        found = [candidates[i] for i, score in best if score >= min_relevance]
-        character = self._characters[conversation.character_id]
-        return _memories_prompt(found[:MAX_FOUND], character, timezone) if found else None
+        return [candidates[i] for i, score in best if score >= min_relevance][:MAX_FOUND]
+
+    async def for_reaching_out(
+        self, conversation: Conversation, timezone: str, last_turn: str | None
+    ) -> str | None:
+        """The prompt section carrying the memories she reaches out with in `conversation`,
+        whose user is in `timezone` (GLOSSARY.md「搭话」): of those the user told her herself
+        that still hold, those relevant to `last_turn`, as a turn finds them (`last_turn_query`),
+        then as many as `MAX_LATEST` of the latest written down within `LATELY`, each once;
+        None if there are none, or memory is off."""
+        if (services := self._services) is None:
+            return None
+        user_id, character_id = conversation.user_id, conversation.character_id
+        await self._settle(user_id)
+        found: list[Memory] = []
+        if last_turn is not None:
+            try:
+                query_vector = await services.embedder.embed_query(last_turn)
+                candidates = await self._nearest(
+                    services.embedder, user_id, query_vector, CANDIDATES, character_id
+                )
+            except EmbeddingError:
+                log.warning("embedding memories failed; reaching out with the latest only",
+                            exc_info=True)
+                candidates = []
+            found = await self._relevant(last_turn, candidates)
+        since = (self._clock() - LATELY).astimezone(UTC)
+        latest = [
+            m for m in _holding(await asyncio.to_thread(self.kept, user_id), character_id)
+            if datetime.fromisoformat(m.created_at) >= since
+        ][-MAX_LATEST:]
+        ids = {m.id for m in found}
+        recalled = [*found, *(m for m in reversed(latest) if m.id not in ids)]
+        character = self._characters[character_id]
+        return (
+            _memories_prompt(recalled, character, timezone, _REACHING_OUT) if recalled else None
+        )
 
     async def _nearest(
-        self, embedder: Embedder, user_id: str, query_vector: Sequence[float], limit: int
+        self,
+        embedder: Embedder,
+        user_id: str,
+        query_vector: Sequence[float],
+        limit: int,
+        character_id: str | None = None,
     ) -> list[Memory]:
         """As many as `limit` of the user's holding memories nearest a query embedded with
-        `embedder`, nearest first. Raises EmbeddingError, embedding those not embedded yet."""
-        memories = await asyncio.to_thread(self._all, user_id)
+        `embedder`, nearest first, only those told to the character `character_id` if given.
+        Raises EmbeddingError, embedding those not embedded yet."""
+        memories = await asyncio.to_thread(self.kept, user_id)
         vectors = await self._vectors(embedder, user_id, memories)
-        holding = [m for m in memories if m.superseded_by is None]
+        holding = _holding(memories, character_id)
         return [
             holding[i] for i, _ in nearest([vectors[m.id] for m in holding], query_vector, limit)
         ]
@@ -327,8 +460,8 @@ class Memories:
         except EmbeddingError:
             log.warning("embedding the turn failed; the background model is shown the latest"
                         " memories", exc_info=True)
-            memories = await asyncio.to_thread(self._all, user_id)
-            return [m for m in memories if m.superseded_by is None][-SHOWN_MEMORIES:]
+            memories = await asyncio.to_thread(self.kept, user_id)
+            return _holding(memories)[-SHOWN_MEMORIES:]
 
     def _write_down(
         self,
@@ -352,15 +485,19 @@ class Memories:
             ),
             context=detached(),  # after the turn, not part of it (see `activity`)
         )
-        pending = self._pending.setdefault(conversation.user_id, set())
+        self._hold(conversation.user_id, task)
+        if release is not None:
+            task.add_done_callback(lambda _: release())
+
+    def _hold(self, user_id: str, task: asyncio.Task[None]) -> None:
+        """Have the user's turns, listing and deleting wait (a while) for `task`."""
+        pending = self._pending.setdefault(user_id, set())
         pending.add(task)
 
         def done(task: asyncio.Task[None]) -> None:
             pending.discard(task)
-            if not pending and self._pending.get(conversation.user_id) is pending:
-                del self._pending[conversation.user_id]
-            if release is not None:
-                release()
+            if not pending and self._pending.get(user_id) is pending:
+                del self._pending[user_id]
 
         task.add_done_callback(done)
 
@@ -408,24 +545,25 @@ class Memories:
             log.warning("embedding new memories failed; they are embedded when searched",
                         exc_info=True)
 
-    def _all(self, user_id: str) -> list[Memory]:
-        """Oldest first."""
+    def kept(self, user_id: str) -> list[Memory]:
+        """All of the user's memories, oldest first, as they are now: not waiting for what
+        is being written down (`entries` does)."""
         with self._lock:
             rows = self._db.execute(
-                "SELECT id, user_id, source_character_id, text, created_at, superseded_by"
-                " FROM memories WHERE user_id = ? ORDER BY id",
+                "SELECT id, user_id, source_character_id, text, created_at, superseded_by,"
+                " conversation_id FROM memories WHERE user_id = ? ORDER BY id",
                 (user_id,),
             ).fetchall()
         return [self._memory(*row) for row in rows]
 
     def _memory(
         self, id: int, user_id: str, source_character_id: str, text: str, created_at: str,
-        superseded_by: int | None = None,
+        superseded_by: int | None = None, conversation_id: str | None = None,
     ) -> Memory:
         source = self._characters.get(source_character_id)
         return Memory(
             id, user_id, source_character_id, source.name if source else None, text,
-            created_at, superseded_by,
+            created_at, superseded_by, conversation_id,
         )
 
     def _add(
@@ -647,6 +785,17 @@ def memory_query(history: Sequence[Message], text: str) -> str:
     return joined_query(_said(previous) if previous else None, text)
 
 
+def last_turn_query(messages: Sequence[Message]) -> str | None:
+    """What the memories she reaches out with are found with (`Memories.for_reaching_out`):
+    the last turn of `messages`, what the user said, then her reply as people see it; None
+    before the first."""
+    said = next((i for i in reversed(range(len(messages))) if messages[i].role == "user"), None)
+    if said is None:
+        return None
+    replies = [_said(m) for m in messages[said + 1 :] if m.role == "character"]
+    return "\n".join([messages[said].text or "", *replies])
+
+
 def joined_query(previous_reply: str | None, text: str) -> str:
     """`memory_query` of `text` said after `previous_reply`, as people see it, if any."""
     return f"{previous_reply}\n{text}" if previous_reply else text
@@ -693,12 +842,30 @@ def parse_memories(answer: str) -> list[NewMemory] | None:
     return list(written.values())[:MAX_NEW_MEMORIES]
 
 
-def _memories_prompt(memories: Sequence[Memory], character: Character, timezone: str) -> str:
-    lines = [
-        "# 关于制作人的记忆",
-        "下面是制作人以前说过的、和这句话可能有关的事，按相关程度排列，和话题无关的可以忽略。"
-        "像平时记得这些事一样自然地提起，不要逐条复述。",
+_FOUND = (
+    "下面是制作人以前说过的、和这句话可能有关的事，按相关程度排列，和话题无关的可以忽略。"
+    "像平时记得这些事一样自然地提起，不要逐条复述。"
+)
+_REACHING_OUT = (
+    "下面是制作人以前对你说过的事：先是和你们上次聊的可能有关的，再是制作人这两周的近况。"
+    "挑一两件自然地提起，不要逐条复述。"
+)
+
+
+def _holding(memories: Sequence[Memory], character_id: str | None = None) -> list[Memory]:
+    """Those of `memories` that still hold, only those told to `character_id` if given."""
+    return [
+        m for m in memories
+        if m.superseded_by is None and character_id in (None, m.source_character_id)
     ]
+
+
+def _memories_prompt(
+    memories: Sequence[Memory], character: Character, timezone: str, opening: str
+) -> str:
+    """The prompt section carrying `memories`, after its heading and `opening`, which says
+    what they are."""
+    lines = ["# 关于制作人的记忆", opening]
     for memory in memories:
         when = _date(datetime.fromisoformat(memory.created_at).astimezone(ZoneInfo(timezone)))
         if memory.source_character_id == character.id:

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { AppLink } from "@/components/app/AppLink";
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { SettingsSection } from "@/components/app/SettingsSection";
 import { useDirectory } from "@/components/conversations/ConversationDirectory";
@@ -58,7 +59,13 @@ export function DeleteAccount() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t.confirmTitle}</AlertDialogTitle>
-            <AlertDialogDescription>{t.confirmHint}</AlertDialogDescription>
+            <AlertDialogDescription>
+              {t.confirmHint}
+              {/* 删了才后悔没带走：确认前给一条去数据包的路（GLOSSARY.md「数据包」）。 */}
+              <AppLink href="/settings/data-package" onClick={() => setConfirming(false)}>
+                {t.exportFirst}
+              </AppLink>
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>{copy.common.cancel}</AlertDialogCancel>

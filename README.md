@@ -52,6 +52,16 @@ Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像
       <p align="center"><sub><b>换衣装</b>：原作的每张卡都能穿，私服和演出服可以切换</sub></p>
     </td>
   </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/images/photo.webp" alt="对话页：めぐる发来一张照片">
+      <p align="center"><sub><b>她发照片</b>：开口要，她按自己的样子和当时的情境拍一张</sub></p>
+    </td>
+    <td width="50%">
+      <img src="docs/images/gifts.webp" alt="礼物页：抽奖台、重置卡和背包里的礼物">
+      <p align="center"><sub><b>礼物</b>：每天抽奖，挑她喜欢的送</sub></p>
+    </td>
+  </tr>
 </table>
 
 <table>
@@ -80,27 +90,31 @@ Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像
 
 **和她说话**
 
-- 🎙️ **实时语音通话**：基于 WebRTC 的全双工通话，中文、日语都能说。可以随时插话打断她，通话层也可以收起，回到文字记录。
-- 🇯🇵 **日语原声 + 中文字幕**：她始终用日语回答，保留语气词和口癖，每句附中文字幕（[ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)）。台词带着语气提示去合成，念出来有起伏；专有名词按读音表念对。
-- 🎭 **会动的立绘**：通话层叠上原作的 Spine 立绘，会呼吸、眨眼、动嘴，按情绪换表情、点头或摇头。原作出了新卡，每周同步一次就能穿上。
-- 💗 **好感度和礼物**：她会因为你说的话亲近或疏远你，冒犯多了会暂时不理你，电话里也会挂断。由部署者的判断模型判断，自带 LLM 也改不了。每天抽奖得到礼物送给她，她喜欢的礼物更能打动她，下一次回复时她会回应。
-
-  <img src="docs/images/gifts.webp" alt="礼物页：抽奖台、重置卡和背包里的礼物" width="100%">
+- 🎙️ **实时语音通话**：基于 WebRTC 的全双工通话，中文、日语都能说，随时可以插话打断她。
+- 🇯🇵 **日语原声 + 中文字幕**：她用日语回答，保留口癖，每句附中文字幕（[ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)）；专有名词按读音表念对。
+- 🎭 **会动的立绘**：通话时叠上原作的 Spine 立绘，会呼吸、眨眼、动嘴，随情绪换表情。原作出了新卡，每周同步一次就能穿。
+- 📷 **她发照片**：你开口要，她按自己的样子和当时的情境拍一张发来，只有全年龄的内容（[配置指南](docs/configuration.md#照片)）。
+- 💗 **好感度和礼物**：你说的话会让她亲近或疏远你，冒犯多了她会挂断电话、结束这段对话。每天抽奖得到礼物送给她，她会回应。
+- 💌 **搭话**：你一阵子没来，她会在对话里先说几句；越亲近来得越早（[配置指南](docs/configuration.md#搭话)）。
 
 **她记得什么**
 
-- 📖 **回忆原作剧情**：导入剧情库后，她只回忆**自己出场过**的正式经历，可以回答「那次……是怎么回事」。
-- 🔄 **与原作同步**：一条命令同步粉丝汉化和镜像上的日语原文，新卡、新活动一周内就能回忆。歌曲、唱片和演出也写进她的世界设定。
-- 🧠 **跨角色共享记忆**：对灯織说过的事，恋鐘也会知道，但会以「听灯織说……」的口吻提起（[ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)）。情况变了，新记忆会取代旧的。她记住的事你都能查看和删除。
-- 🪪 **制作人档案**：她怎么称呼你、你的性别、时区和生日，都可以在设置里改，所有设备共用；生日当天她会祝你生日快乐。
-- ⚡ **按需检索**：先由判断模型决定这句话要不要查资料，寒暄闲聊没有额外延迟。
+- 📖 **回忆原作剧情**：导入剧情库后，她只回忆**自己出场过**的正式经历。
+- 🔄 **与原作同步**：一条命令同步粉丝汉化和日语原文，新卡、新活动一周内就能回忆；歌曲和演出也写进她的世界设定。
+- 🧠 **跨角色共享记忆**：对灯織说过的事，恋鐘也会知道，并以「听灯織说……」的口吻提起（[ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)）。她记住的事你都能查看和删除。
+- 🗂️ **历史对话**：随时开新对话，旧的留着翻看，不要了可以删。
+- 🪪 **制作人档案**：称呼、性别、时区和生日都能在设置里改；生日当天她会祝你生日快乐。
+- 📊 **统计**：看你和她们聊了多少回合、通了多久电话、送了多少礼物，可以导出一张分享图。
+- ⚡ **按需检索**：先判断这句话要不要查资料，寒暄闲聊没有额外延迟。
 
 **部署和运营**
 
-- 👥 **对公众开放**：Google 或 GitHub 登录，按用户限流，用户之间的记忆互相隔离。用户可以彻底删除自己的全部数据，数据库每天加密备份到异地。
-- 🔑 **自带密钥**：用户可以填自己的 LLM、语音合成和语音识别密钥，用自己的额度。用自带 LLM 的文字对话不占限额；通话带上哪几项就不占限额由部署者选定（默认三项都要，见[配置指南](docs/configuration.md#登录用户与限额)），没带的用户照样能用，只是计入限额。密钥只存在用户的浏览器里（[ADR-0017](docs/adr/0017-own-api-keys-stay-in-the-browser.md)）。
-- 🛠️ **后台**：在网页上看用量、估算的花费和进行中的通话，改模型、限额和单价（不用重启），封禁用户或给某位用户单独设限额；看不到任何人的对话、记忆、档案、好感度和礼物。好感度和礼物需要判断模型，默认打开，可以单独关掉；判断模型误判时可以给所有用户各发一张重置卡，见[配置指南](docs/configuration.md#好感度和礼物)。
-- 🔌 **服务可以替换**：模型支持 OpenAI Chat Completions、Responses 和 Anthropic Messages 三种接口；语音识别、向量化和判断模型都有两家可选。
+- 👥 **对公众开放**：Google 或 GitHub 登录，按用户限流，记忆互相隔离；用户可以彻底删除自己的数据，数据库每天加密备份到异地。
+- 📦 **数据包**：对话、照片、记忆和制作人档案导出成一个 zip，在别的部署导入后接着用；好感度和礼物不随行（[ADR-0025](docs/adr/0025-data-packages-leave-affinity-and-gifts-behind.md)）。
+- 🔑 **自带密钥**：用户可以填自己的 LLM、语音合成、语音识别和生图密钥，用自己的额度，满足条件时不占限额（[配置指南](docs/configuration.md#自带密钥)）。密钥只存在浏览器里（[ADR-0017](docs/adr/0017-own-api-keys-stay-in-the-browser.md)）。
+- 🛠️ **后台**：看用量、花费和进行中的通话，改模型和限额不用重启，封禁用户、发公告；看不到任何人的对话和记忆。
+- 🚦 **服务状态**：用户在对话列表就能看到各项服务正不正常。
+- 🔌 **服务可以替换**：模型支持 OpenAI Chat Completions、Responses 和 Anthropic Messages 三种接口；语音识别、向量化各有两家可选，判断模型有三家；每项服务都可以单独走网络代理。
 - 🚀 **一键部署**：Docker Compose 生产配置，自带 Caddy（自动 HTTPS）和 coturn（TURN 中继）；CI 构建镜像并发布到 GHCR。
 
 ## 🚀 快速开始
@@ -122,7 +136,8 @@ docker compose up --build
 | 文字对话 | `CHAT_LLM_*` |
 | 语音通话 | `FISH_AUDIO_API_KEY`，加语音识别的 key：`SONIOX_API_KEY`（默认）或阿里云百炼的 `DASHSCOPE_API_KEY` |
 | 剧情库 | 向量化的 key：`SILICONFLOW_API_KEY`（默认）或 `GEMINI_API_KEY` |
-| 检索与记忆 | 向量化的 key、`SILICONFLOW_API_KEY`（重排），加判断模型：`JEV_API_KEY`（默认）或 Cloudflare 的凭证 |
+| 检索与记忆 | 向量化的 key、`SILICONFLOW_API_KEY`（重排），加判断模型：`JEV_API_KEY`（默认）、Cloudflare 或阿里云百炼的凭证 |
+| 照片 | 判断模型，加生图的 key：`NOVELAI_API_KEY` |
 | 立绘与招呼 | `EIDOLON_STAND_ASSETS_URL` 和存放素材的存储桶 |
 
 每项怎么配、配了以后有什么效果，见 **[配置指南](docs/configuration.md)**；所有环境变量的说明见 [`.env.example`](.env.example)。
@@ -143,7 +158,7 @@ flowchart LR
         Engine["对话引擎"]
         Retrieval["检索"]
         Memory["记忆"]
-        DB[("SQLite<br/>对话 · 记忆 · 剧情库")]
+        DB[("SQLite<br/>对话 · 照片 · 记忆 · 剧情库")]
     end
 
     Bucket[("对象存储<br/>立绘 · 招呼")]
@@ -160,10 +175,11 @@ flowchart LR
     Retrieval --> DB
     Memory --> DB
     Engine <--> ChatLLM["对话模型"]
-    Retrieval <--> Judge["判断模型<br/>Jev 或 Clef"]
+    Retrieval <--> Judge["判断模型<br/>Jev、Clef 或阿里云百炼"]
     Retrieval <--> Emb["向量化<br/>Qwen3-Embedding 或 Gemini"]
     Retrieval <--> SF["硅基流动<br/>Qwen3-Reranker"]
     Memory <--> BgLLM["后台模型"]
+    Engine <--> Image["生图<br/>NovelAI"]
 ```
 
 - 打字和说话走**同一个对话引擎**，写进同一条对话记录；通话只是在引擎外面包了一层语音识别和语音合成。
@@ -173,10 +189,10 @@ flowchart LR
 
 | 文档 | 内容 |
 |---|---|
-| [配置指南](docs/configuration.md) | 模型、角色、通话、立绘、剧情库、检索、记忆、登录、自带密钥、后台的配置和效果 |
+| [配置指南](docs/configuration.md) | 模型、角色、通话、立绘、剧情库、检索、记忆、照片、登录、自带密钥、网络代理、服务状态、后台的配置和效果 |
 | [部署指南](docs/deploy.md) | 部署到 VPS：域名、防火墙、OAuth、剧情库每周同步、立绘与招呼素材、升级、备份与恢复、排障 |
 | [`.env.example`](.env.example) | 全部环境变量及说明 |
-| [架构决策记录](docs/adr/) | 为什么这样设计：日语原声、共享记忆、对公众开放、自带密钥只存在浏览器里等 17 条 |
+| [架构决策记录](docs/adr/) | 为什么这样设计：日语原声、共享记忆、对公众开放、自带密钥只存在浏览器里等 |
 | [`GLOSSARY.md`](GLOSSARY.md) | 领域术语表 |
 | [`DESIGN.md`](DESIGN.md) · [`PRODUCT.md`](PRODUCT.md) | 视觉规范 · 产品定位 |
 
@@ -189,7 +205,7 @@ docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-数据库由 `deploy/db-backup.sh` 每天加密备份到私有存储桶，保留 30 天。完整步骤见 [部署指南](docs/deploy.md)。
+数据库由 `deploy/db-backup.sh` 每天加密备份到私有存储桶，默认保留 30 天。完整步骤见 [部署指南](docs/deploy.md)。
 
 ## 💻 开发
 
@@ -254,7 +270,7 @@ eidolon-sc/
 - [Soniox](https://soniox.com/)、[阿里云百炼](https://www.aliyun.com/product/bailian)：语音识别
 - [硅基流动](https://siliconflow.cn/)：Qwen3 Embedding 与 Reranker
 - [Google Gemini API](https://ai.google.dev/)：Gemini Embedding（可选的向量化服务）
-- [TypeSafe Jev](https://docs.typesafe.ai/)、[OpenRouter](https://openrouter.ai/)、[Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/)：判断模型
+- [TypeSafe Jev](https://docs.typesafe.ai/)、[OpenRouter](https://openrouter.ai/)、[Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/)、[阿里云百炼](https://help.aliyun.com/zh/model-studio/decision-model-api)：判断模型
 - [Spine Runtimes](https://github.com/EsotericSoftware/spine-runtimes)：立绘的播放（spine-ts 3.6）
 - [im@sparql](https://sparql.crssnky.xyz/imas/)、Lantis、ふじわらはじめ、imas-db、wikiwiki：世界设定里的偶像、唱片和演出资料
 

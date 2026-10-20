@@ -52,6 +52,16 @@ All **28 idols** from the game's eight units are already set up and ready to tal
       <p align="center"><sub><b>Outfits</b>: every card from the game is wearable, switchable between everyday clothes and stage costume</sub></p>
     </td>
   </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/images/photo.webp" alt="Conversation: Meguru sends a photo">
+      <p align="center"><sub><b>Photos</b>: ask, and she takes one of herself in the moment</sub></p>
+    </td>
+    <td width="50%">
+      <img src="docs/images/gifts.webp" alt="Gifts page: the draw counter, a reset card and the gifts in the backpack">
+      <p align="center"><sub><b>Gifts</b>: draw every day, give her the ones she likes</sub></p>
+    </td>
+  </tr>
 </table>
 
 <table>
@@ -80,27 +90,31 @@ All **28 idols** from the game's eight units are already set up and ready to tal
 
 **Talk with her**
 
-- 🎙️ **Real-time voice calls**: Full-duplex calls over WebRTC, in Chinese or Japanese. You can interrupt her at any time. The call screen can also be collapsed, back to the transcript.
-- 🇯🇵 **Japanese voice + Chinese subtitles**: She always answers in Japanese, keeping her sentence-final particles and verbal tics, with a Chinese subtitle for every line ([ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)). Lines go to speech synthesis with delivery cues, so they are read with feeling. Proper names are pronounced correctly from a readings table.
-- 🎭 **A living stand**: The call screen shows her Spine stand from the game. She breathes, blinks and moves her lips, and changes expression, nods or shakes her head with her emotion. When the game releases new cards, the weekly sync makes them wearable.
-- 💗 **Affinity and gifts**: What you say draws her closer or pushes her away; offend her too much and she'll stop talking to you for a while, or hang up on a call. The deployer's judge decides, so bringing your own LLM can't change it. Draw gifts every day and give them to her; the ones she likes move her more, and she responds in her next reply.
-
-  <img src="docs/images/gifts.webp" alt="Gifts page: the draw counter, a reset card and the gifts in the backpack" width="100%">
+- 🎙️ **Real-time voice calls**: Full-duplex calls over WebRTC, in Chinese or Japanese. You can interrupt her at any time.
+- 🇯🇵 **Japanese voice + Chinese subtitles**: She answers in Japanese, keeping her verbal tics, with a Chinese subtitle for every line ([ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)). Proper names are pronounced from a readings table.
+- 🎭 **A living stand**: During a call her Spine stand from the game breathes, blinks, moves her lips and changes expression with her emotion. When the game releases new cards, the weekly sync makes them wearable.
+- 📷 **She sends photos**: Ask, and she takes one of herself in the moment and sends it. All-ages only ([configuration guide](docs/configuration.en.md#photos)).
+- 💗 **Affinity and gifts**: What you say draws her closer or pushes her away; offend her too much and she hangs up, or ends the conversation. Draw gifts every day and give them to her; she responds.
+- 💌 **She reaches out**: When you've been away a while, she says a few words first in your conversation; the closer you are, the sooner she does ([configuration guide](docs/configuration.en.md#reach-outs)).
 
 **What she remembers**
 
-- 📖 **Story recall**: Once the story corpus is imported, she recalls only the canon episodes **she appears in**, and can answer "what happened that time…?"
-- 🔄 **Kept in step with the game**: One command syncs the fan translations and the Japanese originals on the mirror, so new cards and events can be recalled within a week. Songs, releases and lives are written into her world setting too.
-- 🧠 **Memory shared across characters**: Tell Hiori something and Kogane will know too, but she'll bring it up as "Hiori told me…" ([ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)). When things change, a new memory supersedes the old one. Users can see and delete everything she remembers.
-- 🪪 **Producer profile**: How she addresses you, your gender, time zone and birthday can all be changed in settings, shared across devices; on your birthday she'll wish you a happy one.
-- ⚡ **On-demand retrieval**: The judge first decides whether a line needs any lookup, so small talk adds no latency.
+- 📖 **Story recall**: Once the story corpus is imported, she recalls only the canon episodes **she appears in**.
+- 🔄 **Kept in step with the game**: One command syncs the fan translations and the Japanese originals, so new cards and events can be recalled within a week. Songs and lives are in her world setting too.
+- 🧠 **Memory shared across characters**: Tell Hiori something and Kogane will know too, and bring it up as "Hiori told me…" ([ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)). You can see and delete everything she remembers.
+- 🗂️ **Past conversations**: Start a new conversation any time; the old ones stay to read back, or to delete.
+- 🪪 **Producer profile**: How she addresses you, your gender, time zone and birthday are all in settings; on your birthday she wishes you a happy one.
+- 📊 **Stats**: See how many turns, call minutes and gifts you've shared with them, and export a share image.
+- ⚡ **On-demand retrieval**: Each line is first checked for whether it needs a lookup, so small talk adds no latency.
 
 **Deployment and operations**
 
-- 👥 **Open to the public**: Sign in with Google or GitHub. Usage is rate-limited per user, and users' memories are isolated from each other. Users can delete all their data for good, and the database is backed up offsite, encrypted, every day.
-- 🔑 **Bring your own keys**: Users can enter their own LLM, speech synthesis and speech recognition keys to use their own credits. A text turn on their own LLM doesn't count toward their limits; which keys a call must bring not to count is up to the deployer (all three by default, see the [configuration guide](docs/configuration.en.md#sign-in-users-and-usage-limits)). Users without their own keys can still chat and call; those count. The keys are kept only in the user's browser ([ADR-0017](docs/adr/0017-own-api-keys-stay-in-the-browser.md)).
-- 🛠️ **Admin console**: On the web, see usage, estimated cost and live calls, change models, usage limits and prices (no restart), ban users or give one user their own limits. No one's conversations, memories, profile, affinity or gifts are visible there. Affinity and gifts need a judge, are on by default and can be switched off on their own; if the judge gets things wrong, every user can be given a reset card. See the [configuration guide](docs/configuration.en.md#affinity-and-gifts).
-- 🔌 **Swappable services**: Models can use any of three protocols: OpenAI Chat Completions, Responses and Anthropic Messages. Speech recognition, embedding and the judge each offer two providers.
+- 👥 **Open to the public**: Sign in with Google or GitHub. Usage is limited per user and memories are isolated; users can delete all their data for good, and the database is backed up offsite, encrypted, every day.
+- 📦 **Data packages**: Export conversations, photos, memories and producer profile as one zip, and carry on on another deployment. Affinity and gifts stay behind ([ADR-0025](docs/adr/0025-data-packages-leave-affinity-and-gifts-behind.md)).
+- 🔑 **Bring your own keys**: Users can enter their own LLM, speech synthesis, speech recognition and image generation keys to use their own credits, and under some conditions not count toward their limits ([configuration guide](docs/configuration.en.md#bring-your-own-keys)). The keys stay in the browser ([ADR-0017](docs/adr/0017-own-api-keys-stay-in-the-browser.md)).
+- 🛠️ **Admin console**: See usage, cost and live calls, change models and limits without a restart, ban users and post announcements. No one's conversations or memories are visible there.
+- 🚦 **Service status**: Users can see from the conversation list whether each service is working.
+- 🔌 **Swappable services**: Models can use OpenAI Chat Completions, Responses or Anthropic Messages. Speech recognition and embedding each offer two providers, the judge three; each service can go through a proxy on its own.
 - 🚀 **One-command deployment**: A Docker Compose production config, with Caddy (automatic HTTPS) and coturn (TURN relay) built in. CI builds the images and publishes them to GHCR.
 
 ## 🚀 Quick start
@@ -122,7 +136,8 @@ With only the chat model set, you can chat by text. Add other services' keys as 
 | Text chat | `CHAT_LLM_*` |
 | Voice calls | `FISH_AUDIO_API_KEY`, plus a speech recognition key: `SONIOX_API_KEY` (default) or Alibaba Cloud Model Studio's `DASHSCOPE_API_KEY` |
 | Story corpus | An embedding key: `SILICONFLOW_API_KEY` (default) or `GEMINI_API_KEY` |
-| Retrieval and memory | An embedding key, `SILICONFLOW_API_KEY` (reranking), plus a judge: `JEV_API_KEY` (default) or Cloudflare credentials |
+| Retrieval and memory | An embedding key, `SILICONFLOW_API_KEY` (reranking), plus a judge: `JEV_API_KEY` (default), or Cloudflare or Alibaba Cloud Model Studio credentials |
+| Photos | A judge, plus an image generation key: `NOVELAI_API_KEY` |
 | Stands and greetings | `EIDOLON_STAND_ASSETS_URL` and a bucket holding the assets |
 
 How to configure each one and what it does is in the **[Configuration guide](docs/configuration.en.md)**. Every environment variable is documented in [`.env.example`](.env.example).
@@ -143,7 +158,7 @@ flowchart LR
         Engine["Conversation engine"]
         Retrieval["Retrieval"]
         Memory["Memory"]
-        DB[("SQLite<br/>conversations · memories · story corpus")]
+        DB[("SQLite<br/>conversations · photos · memories · story corpus")]
     end
 
     Bucket[("Object storage<br/>stands · greetings")]
@@ -160,10 +175,11 @@ flowchart LR
     Retrieval --> DB
     Memory --> DB
     Engine <--> ChatLLM["Chat model"]
-    Retrieval <--> Judge["Judge<br/>Jev or Clef"]
+    Retrieval <--> Judge["Judge<br/>Jev, Clef or Alibaba Cloud Model Studio"]
     Retrieval <--> Emb["Embedding<br/>Qwen3-Embedding or Gemini"]
     Retrieval <--> SF["SiliconFlow<br/>Qwen3-Reranker"]
     Memory <--> BgLLM["Background model"]
+    Engine <--> Image["Image generation<br/>NovelAI"]
 ```
 
 - Typing and speaking go through **the same conversation engine** and are written into the same conversation record. A call just wraps speech recognition and speech synthesis around the engine.
@@ -173,10 +189,10 @@ flowchart LR
 
 | Document | Contents |
 |---|---|
-| [Configuration guide](docs/configuration.en.md) | Configuring models, characters, calls, stands, the story corpus, retrieval, memory, sign-in, own keys and the admin console, and what each does |
+| [Configuration guide](docs/configuration.en.md) | Configuring models, characters, calls, stands, the story corpus, retrieval, memory, photos, sign-in, own keys, the proxy, service status and the admin console, and what each does |
 | [Deployment guide](docs/deploy.md) (Chinese) | Deploying to a VPS: domain, firewall, OAuth, weekly story corpus sync, stand and greeting assets, upgrades, backup and restore, troubleshooting |
 | [`.env.example`](.env.example) | Every environment variable, with descriptions |
-| [Architecture decision records](docs/adr/) | Why it is designed this way: 17 records, covering the Japanese voice, shared memory, opening to the public, own keys kept only in the browser and more |
+| [Architecture decision records](docs/adr/) | Why it is designed this way: the Japanese voice, shared memory, opening to the public, own keys kept only in the browser and more |
 | [`GLOSSARY.md`](GLOSSARY.md) | Domain glossary |
 | [`DESIGN.md`](DESIGN.md) · [`PRODUCT.md`](PRODUCT.md) | Visual design system · Product positioning |
 
@@ -189,7 +205,7 @@ docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-`deploy/db-backup.sh` backs the database up every day, encrypted, to a private bucket, and keeps the backups for 30 days. For the full steps, see the [deployment guide](docs/deploy.md) (Chinese).
+`deploy/db-backup.sh` backs the database up every day, encrypted, to a private bucket, and keeps the backups for 30 days by default. For the full steps, see the [deployment guide](docs/deploy.md) (Chinese).
 
 ## 💻 Development
 
@@ -254,7 +270,7 @@ The license covers only the code and documentation in the repository. The follow
 - [Soniox](https://soniox.com/), [Alibaba Cloud Model Studio](https://www.aliyun.com/product/bailian): speech recognition
 - [SiliconFlow](https://siliconflow.cn/): Qwen3 Embedding and Reranker
 - [Google Gemini API](https://ai.google.dev/): Gemini Embedding (an optional embedding service)
-- [TypeSafe Jev](https://docs.typesafe.ai/), [OpenRouter](https://openrouter.ai/), [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/): the judge
+- [TypeSafe Jev](https://docs.typesafe.ai/), [OpenRouter](https://openrouter.ai/), [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/), [Alibaba Cloud Model Studio](https://www.alibabacloud.com/help/en/model-studio/): the judge
 - [Spine Runtimes](https://github.com/EsotericSoftware/spine-runtimes): playing the stands (spine-ts 3.6)
 - [im@sparql](https://sparql.crssnky.xyz/imas/), Lantis, ふじわらはじめ, imas-db, wikiwiki: the idols, releases and lives in the world setting
 

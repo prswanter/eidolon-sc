@@ -5,12 +5,14 @@ import {
   turnOwnKeys,
   type BailianRegion,
   type FishAudioModel,
+  type LLMProtocol,
   type LocalImage,
   type LocalLLM,
   type LocalModel,
   type OwnService,
   type SttProvider,
 } from "@/lib/localOwnKeys";
+import type { LLMOffer, LLMProvider } from "@/lib/llmProviders";
 import type { EffortHint } from "@/lib/reasoningEffort";
 import { detectTimezone } from "@/lib/timezone";
 import type { Speaking } from "@/lib/call";
@@ -98,19 +100,21 @@ export type Conversation = {
 
 /** The last thing in a conversation as a list shows it, a message (without delivery cues),
  * marked `photo` when it is her reply with a photo she sent (not one being generated or not sent
- * after all), or a conversation event other than her ending it; null while it has none. */
+ * after all), or her reach-out, shown as her reply is, marked `reach_out`; or a conversation event
+ * other than her ending it; null while it has none. */
 export type LastMessage =
-  | (Pick<Message, "role" | "text" | "ja" | "zh" | "created_at"> & { photo?: true })
+  | (Pick<Message, "role" | "text" | "ja" | "zh" | "created_at"> & { photo?: true; reach_out?: true })
   | Pick<ConversationEvent, "type" | "kind" | "created_at" | "gift_name">
   | null;
 
-/** A character's newest conversation with the user and the last thing in it, for the
- * conversation list. */
+/** A character's newest conversation with the user, the last thing in it, and whether it has a
+ * reach-out the user has not seen (GLOSSARY.md「没看过的搭话」), for the conversation list. */
 export type LatestConversation = {
   character_id: string;
   conversation_id: string;
   created_at: string;
   last_message: LastMessage;
+  unseen_reach_out: boolean;
 };
 
 /** One of her conversations as the past conversations panel lists it; `title` is its conversation
@@ -169,8 +173,19 @@ export type ConversationEvent = {
   gift_name?: string;
 };
 
+/** What she said first in a conversation, the user not talking to her (GLOSSARY.md「搭话」): neither a
+ * turn nor an event, said as she replies, without delivery cues. */
+export type ReachOut = {
+  type: "reach_out";
+  id: number;
+  ja: string;
+  zh: string;
+  segments: Segment[];
+  created_at: string;
+};
+
 /** What a conversation's record holds, in order. */
-export type Recorded = Message | ConversationEvent;
+export type Recorded = Message | ConversationEvent | ReachOut;
 
 /** A turn's events: `user`, then `photo` if she sends one (its id, before her first words), any
  * `delta`s, then `photos-used-up` if the user asked for a photo with this hour's used up (when they
@@ -277,15 +292,28 @@ export class ApiError extends Error {
   /** Refused because affinity and gifts are not open (GLOSSARY.md「礼物」): the gifts page shows
    * them closed. */
   readonly giftsClosed: boolean;
+  /** What the refusal was, where the backend says so beside its reason (a data package's
+   * `broken`, `too_new`, `used_up`…); null where it does not. */
+  readonly code: string | null;
+  /** Refused for a limit used up until this time (ISO, the 429's `retry_at`); null for any
+   * other refusal, or one with no time to wait for. */
+  readonly retryAt: string | null;
 
   constructor(
     message: string,
     readonly status: number,
-    { cooldownUntil = null, giftsClosed = false }: { cooldownUntil?: string | null; giftsClosed?: boolean } = {},
+    {
+      cooldownUntil = null,
+      giftsClosed = false,
+      code = null,
+      retryAt = null,
+    }: { cooldownUntil?: string | null; giftsClosed?: boolean; code?: string | null; retryAt?: string | null } = {},
   ) {
     super(message);
     this.cooldownUntil = cooldownUntil;
     this.giftsClosed = giftsClosed;
+    this.code = code;
+    this.retryAt = retryAt;
   }
 
   /** The browser is not signed in, or its session has expired. */
@@ -327,7 +355,9 @@ export async function json<T>(res: Response): Promise<T> {
     // Refused while she is in a cooldown, told apart from the limit's 429.
     const cooldownUntil = res.status === CONFLICT && typeof body?.cooldown_until === "string" ? body.cooldown_until : null;
     const giftsClosed = res.status === CONFLICT && body?.gifts_closed === true;
-    throw new ApiError(message, res.status, { cooldownUntil, giftsClosed });
+    const code = typeof body?.code === "string" ? body.code : null;
+    const retryAt = res.status === OVER_LIMIT && typeof body?.retry_at === "string" ? body.retry_at : null;
+    throw new ApiError(message, res.status, { cooldownUntil, giftsClosed, code, retryAt });
   }
   return res.json();
 }
@@ -396,18 +426,42 @@ export type SignInMethod = { provider: Provider; display_name: string; email: st
 /** `id`: who the user is, which this browser keeps their own keys apart by (see `localOwnKeys`).
  * `is_admin`: the user may enter the admin console (`/admin`).
  * `exempting_keys`: the services a call must bring the user's own keys for, all of them, to count
- * towards no limit (GLOSSARY.md「免限额密钥」), in the order of `OWN_SERVICES`; at least one. */
+ * towards no limit (GLOSSARY.md「免限额密钥」), in the order of `OWN_SERVICES`; at least one.
+ * `reach_outs`: the user's own switch for reach-outs (GLOSSARY.md「搭话」); null where the deployer
+ * has them off.
+ * `sponsor_version`: the version of the deployer's sponsor code (GLOSSARY.md「赞赏」), when it was
+ * uploaded, for `sponsorImageUrl`; null when users are not shown it (switched off, or no code). */
 export type Account = {
   id: string;
   name: string;
   sign_in_methods: SignInMethod[];
   is_admin: boolean;
   exempting_keys: OwnService[];
+  reach_outs: boolean | null;
+  sponsor_version: string | null;
 };
+
+/** Where the deployer's sponsor code of `version` (`Account.sponsor_version`) is read: a new address for
+ * each code uploaded, so a browser keeps each for good. */
+export function sponsorImageUrl(version: string): string {
+  return `/api/sponsor/image?${new URLSearchParams({ v: version })}`;
+}
 
 /** The signed-in user; sends the browser to sign in, or to agree to the terms, first. */
 export async function getAccount(): Promise<Account> {
   return json(await api("/api/account"));
+}
+
+/** Turn the user's own switch for reach-outs on or off, for all the characters; refused where the
+ * deployer has them off. */
+export async function switchReachOuts(on: boolean): Promise<void> {
+  await expectNoContent(
+    await api("/api/account/reach-outs", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ on }),
+    }),
+  );
 }
 
 /** Stop signing in with the identity at `provider`; refused for the last one. */
@@ -450,6 +504,29 @@ export async function getEffortHint(
 ): Promise<EffortHint | null> {
   const query = new URLSearchParams({ protocol, base_url: baseUrl, model });
   return json(await api(`/api/account/keys/llm/efforts?${query}`, { signal }));
+}
+
+/** The providers an LLM may be picked from, as models.dev lists them (ADR-0027); none before the
+ * server has fetched the catalog. No key is sent. */
+export async function getLLMProviders(): Promise<LLMProvider[]> {
+  return (await json<{ providers: LLMProvider[] }>(await api("/api/account/keys/llm/providers"))).providers;
+}
+
+/** The models the service at `base_url` offers the user's key, as it lists them (ADR-0027); nothing is
+ * kept. Fails with what the service said, or with when to ask again if asked too often. */
+export async function listOwnLLMModels(protocol: LLMProtocol, base_url: string, api_key: string): Promise<string[]> {
+  const listed = await api("/api/account/keys/llm/models", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ protocol, base_url, api_key }),
+  });
+  return (await json<{ models: string[] }>(listed)).models;
+}
+
+/** The models `provider` serves that an LLM may be picked from, each with its own address and protocol. */
+export async function getLLMProviderModels(provider: string): Promise<LLMOffer[]> {
+  const path = `/api/account/keys/llm/providers/${encodeURIComponent(provider)}/models`;
+  return (await json<{ models: LLMOffer[] }>(await api(path))).models;
 }
 
 /**
@@ -540,6 +617,39 @@ export async function logout(userId?: string): Promise<void> {
  * `range` (all of it unless given). */
 export async function getStats(range: StatsRange = "all"): Promise<Stats> {
   return json(await api(`/api/stats?range=${range}`));
+}
+
+/** What importing a data package added (`data_package.Imported`). */
+export type DataPackageImported = {
+  conversations: number;
+  photos: number;
+  memories: number;
+  /** Whether the producer profile was overwritten. */
+  profile: boolean;
+  /** Her conversations not imported: she is not on this deployment. */
+  skipped: { character_name: string; conversations: number }[];
+};
+
+/** Import a data package, the file itself as the body, streamed: the categories `include` names
+ * and the package holds. Refusals carry the backend's `code` (`ApiError.code`). */
+export async function importDataPackage(file: Blob, include: readonly string[]): Promise<DataPackageImported> {
+  const query = new URLSearchParams({ include: include.join(",") });
+  return json(
+    await api(`/api/account/data-package?${query}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/zip" },
+      body: file,
+    }),
+  );
+}
+
+/** Ask before downloading a data package whether the user could export one now, refused as the
+ * export would be (signed out, `busy`), so the page can say so: a refused download shows the browser
+ * only JSON. Not refused here, the download can still fail in the browser, beaten to it in between or
+ * failing as the package is written. */
+export async function checkDataPackageExport(include: readonly string[]): Promise<void> {
+  const query = new URLSearchParams({ include: include.join(",") });
+  await expectNoContent(await api(`/api/account/data-package/export-check?${query}`));
 }
 
 export async function getProfile(): Promise<ProducerProfile> {

@@ -39,8 +39,6 @@ from tests.test_text_turn import send_turn, start_conversation
 
 REPLY = ["<ja>はい</ja><zh>好的</zh>"]
 OUT_OF_LINE = level(1, out_of_line=True)
-NONE_ENDED = {"cooldown": 0, "out_of_line": 0, "fed_up": 0}
-COOLED = NONE_ENDED | {"cooldown": 1}
 
 
 @pytest.fixture
@@ -67,16 +65,18 @@ async def talk(client: httpx.AsyncClient, conversation: str, times: int) -> None
         assert events[-1]["type"] in ("done", "error")
 
 
-async def test_the_section_sums_up_the_judged_turns_and_ranks_the_characters_by_how_they_lowered_it(
+async def test_the_section_sums_up_the_judged_turns_and_ranks_the_characters_by_how_many(
     make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
 ):
     clock = FakeClock()
     clients = FakeServiceClients()
     clients.judge.judgings = [
-        # Mano: 20 judged, 2 lowering (10%); one judged but failed, one the judge failed on.
-        *[level(1)] * 2, level(3, manipulation=True), *[level(2)] * 17,
+        # Mano: 20 judged, 2 lowering (10%), 1 raising (5%), one that would have but tried to
+        # dictate it; one judged but failed, one the judge failed on.
+        *[level(1)] * 2, level(3, manipulation=True), level(4), *[level(2)] * 16,
         level(0), Judging(fails=True),
-        # Kogane: 20 judged, 5 lowering (25%), the last out of line, cooling her.
+        # Kogane: 20 judged, 5 lowering (25%), the last out of line, cooling her and ending the
+        # conversation.
         *[level(1)] * 4, *[level(2)] * 15, OUT_OF_LINE,
         # Meguru: once, cooling her too; too few to tell a share.
         level(0),
@@ -102,29 +102,27 @@ async def test_the_section_sums_up_the_judged_turns_and_ranks_the_characters_by_
         "cooled_users": 1,
         "out_of_line": 1,
         "manipulation": 1,
-        "levels": [1, 7, 32, 1, 0],
+        "levels": [1, 7, 31, 1, 1],
         "characters": [
+            # As many judged as Mano, but she ended a conversation.
             {
                 "character_id": "kogane", "name": "月岡恋鐘", "judged": 20,
-                "lowered_share": 0.25, "cooldowns": 1, "out_of_line": 1, "manipulation": 0,
-                "hung_up": 0, "ended": COOLED,
+                "raised_share": 0.0, "lowered_share": 0.25, "cooldowns": 1, "she_ended": 1,
             },
             {
                 "character_id": "mano", "name": "櫻木真乃", "judged": 20,
-                "lowered_share": 0.1, "cooldowns": 0, "out_of_line": 0, "manipulation": 1,
-                "hung_up": 0, "ended": NONE_ENDED,
+                "raised_share": 0.05, "lowered_share": 0.1, "cooldowns": 0, "she_ended": 0,
             },
             {
                 "character_id": "meguru", "name": "八宮めぐる", "judged": 1,
-                "lowered_share": None, "cooldowns": 1, "out_of_line": 0, "manipulation": 0,
-                "hung_up": 0, "ended": COOLED,
+                "raised_share": None, "lowered_share": None, "cooldowns": 1, "she_ended": 1,
             },
         ],
     }
     assert board["turns"]["by_result"]["failed"] == 1
 
 
-async def test_the_conversations_she_ended_are_counted_by_why(
+async def test_the_conversations_she_ended_are_counted_whatever_for(
     make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
 ):
     # Those she ended as she cooled are counted in the test above.
@@ -139,7 +137,7 @@ async def test_the_conversations_she_ended_are_counted_by_why(
         board = await dashboard(admin)
 
     [mano] = board["affinity"]["characters"]
-    assert mano["ended"] == NONE_ENDED | {"fed_up": 1, "out_of_line": 1}
+    assert mano["she_ended"] == 2
 
 
 async def test_the_section_follows_the_dashboards_range(

@@ -43,6 +43,7 @@ from eidolon.config import (
     CloudflareJudgeSettings,
     JevSettings,
     JudgeSettings,
+    LLMProtocol,
     LLMSettings,
     ReasoningEffort,
     Settings,
@@ -143,10 +144,11 @@ class FakeLLM:
     order, so tests can split the structured reply at awkward boundaries or have the model
     call a tool; a reply that is an LLMError is raised instead, as a failing service would. With
     a `delay`, it waits that many seconds before each chunk after the first, as a slow
-    model would; at `HANG` it waits forever. Unless reached through a FakeLLMService, it
-    is the deployer's model. With `tokens`, each reply it finishes says it was billed that
-    many input and output tokens, and, with a third, that many of the input read from the
-    prompt cache, as a real service does; without, it says nothing.
+    model would; at `HANG` it waits forever, and at an `asyncio.Event` till it is set.
+    Unless reached through a FakeLLMService, it is the deployer's model. With `tokens`, each
+    reply it finishes says it was billed that many input and output tokens, and, with a
+    third, that many of the input read from the prompt cache, as a real service does;
+    without, it says nothing.
     """
 
     def __init__(
@@ -194,6 +196,9 @@ class FakeLLM:
                 await asyncio.sleep(self._delay)
             if chunk is HANG:
                 await asyncio.Event().wait()
+            if isinstance(chunk, asyncio.Event):
+                await chunk.wait()
+                continue
             assert isinstance(chunk, str | ToolCall | Reasoning)
             yield chunk
         if self._tokens is not None:
@@ -220,10 +225,20 @@ class FakeLLMService:
         self.refused_efforts: dict[str, str] = {}
         self.efforts: list[ReasoningEffort | None] = []
         self.efforts_checked: list[ReasoningEffort | None] = []
+        self.listed: list[tuple[LLMProtocol, str, str]] = []
+        self.models: list[str] = ["model-a", "model-b"]
 
     def open(self, settings: LLMSettings) -> ChatLLM:
         self.opened.append(settings)
         return _KeyedLLM(self, settings)
+
+    async def list_models(self, protocol: LLMProtocol, base_url: str, api_key: str) -> list[str]:
+        """`models`, recording where it was asked and with which key (`listed`); a key in
+        `rejects` fails with that message, repeating the key as a service may."""
+        self.listed.append((protocol, base_url, api_key))
+        if api_key in self.rejects:
+            raise LLMError(f"{self.rejects[api_key]} ({api_key})")
+        return list(self.models)
 
     async def check(self, settings: ChatModelSettings) -> None:
         self.checked.append(settings)
@@ -310,6 +325,8 @@ class FakeServiceClients:
         self.judge = FakeJudgeModel()
         self.judges_opened: list[JudgeSettings] = []
         self.judges_closed: list[JudgeSettings] = []
+        self.listed: list[tuple[str, LLMProtocol, str, str]] = []
+        self.models: list[str] = ["model-a", "model-b"]
 
     def chat_models(self, settings: ChatModelSettings) -> ChatModels:
         self.opened.append(settings.text)
@@ -325,6 +342,17 @@ class FakeServiceClients:
     def judge_model(self, settings: JudgeSettings) -> "JudgeModel":
         self.judges_opened.append(settings)
         return _ConfiguredJudge(self, settings)
+
+    async def list_models(
+        self, service: Literal["chat_llm", "memory_llm"], protocol: LLMProtocol,
+        base_url: str, api_key: str,
+    ) -> list[str]:
+        """`models`, recording where it was asked and with which key (`listed`); a key in
+        `rejects` fails with that message."""
+        self.listed.append((service, protocol, base_url, api_key))
+        if api_key in self.rejects:
+            raise LLMError(self.rejects[api_key])
+        return list(self.models)
 
 
 class _ConfiguredLLM:
@@ -718,7 +746,9 @@ class FakeSpeech:
     Fish Audio was tried with (`tts_models`); a key in `rejects` fails its
     try with that message. A DashScope key works in its region in `regions`, Beijing if
     not there. Records, for each service made or key tried, whether it was on a user's own
-    key (`own`: ("stt" | "tts" | "check_stt" | "check_tts", own))."""
+    key (`own`: ("stt" | "tts" | "check_stt" | "check_tts", own)), and each word voiced as
+    the service status tries Fish Audio, by key, model and voice (`voiced`), failing on a
+    key in `rejects` as well."""
 
     def __init__(self) -> None:
         self.own: list[tuple[str, bool]] = []
@@ -730,6 +760,7 @@ class FakeSpeech:
         self.tts_models: list[str] = []
         self.rejects: dict[str, str] = {}
         self.regions: dict[str, BailianRegion] = {}
+        self.voiced: list[tuple[str, str, str]] = []
 
     def stt(self, key: SttKey, *, own: bool) -> Hearing:
         self.own.append(("stt", own))
@@ -756,6 +787,11 @@ class FakeSpeech:
         self.own.append(("check_tts", own))
         self.tts_models.append(model)
         self._try("tts", api_key)
+
+    async def voice_a_word(self, api_key: str, model: str, voice_id: str) -> None:
+        self.voiced.append((api_key, model, voice_id))
+        if api_key in self.rejects:
+            raise RuntimeError(self.rejects[api_key])
 
     def _try(self, service: str, api_key: str) -> None:
         self.checked.append((service, api_key))

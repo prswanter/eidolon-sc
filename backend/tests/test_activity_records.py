@@ -445,7 +445,7 @@ async def test_an_llm_call_failing_before_any_word_has_no_first_words_time(tmp_p
     assert (call.error, call.first_token_ms, call.effort) == ("server_error", None, None)
 
 
-async def test_the_dashboard_shows_each_effort_of_an_llm_on_a_row_with_its_first_words_times(
+async def test_the_dashboard_shows_an_llm_at_every_effort_on_one_row_with_its_first_words_times(
     make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
 ):
     clock = FakeClock()
@@ -463,21 +463,20 @@ async def test_the_dashboard_shows_each_effort_of_an_llm_on_a_row_with_its_first
     await send_turn(unset, await start_conversation(unset), "在吗")
     board = await dashboard(admin)
 
-    chat = [h for h in board["health"] if h["service"] == "chat_llm"]
-    assert [(h["effort"], h["calls"]) for h in chat] == [(None, 1), ("high", 2)]
-    for row in chat:
-        assert row["first_token_ms"]["p50"] is not None
-        assert row["first_token_ms"]["p95"] is not None
+    [chat] = [h for h in board["health"] if h["service"] == "chat_llm"]
+    assert chat["calls"] == 3 and "effort" not in chat
+    assert chat["first_token_ms"]["p50"] is not None
+    assert chat["first_token_ms"]["p95"] is not None
     judge = health(board, "judge")
     assert judge is not None and judge["calls"] == 1
-    assert "effort" not in judge and "first_token_ms" not in judge
+    assert "first_token_ms" not in judge
 
 
 async def test_a_database_from_before_first_words_were_timed_takes_them_now(
     make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
 ):
     """Service calls recorded before had no first word's time nor effort; they keep
-    neither, and are shown on the row of no effort."""
+    neither."""
     with sqlite3.connect(settings.database_path) as db:
         db.execute(
             "CREATE TABLE service_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, record_id"
@@ -499,8 +498,34 @@ async def test_a_database_from_before_first_words_were_timed_takes_them_now(
 
     assert kept == [(None, None)]
     assert chat is not None
-    assert (chat["calls"], chat["effort"], chat["latency_ms"]["p50"]) == (1, None, 900)
+    assert (chat["calls"], chat["latency_ms"]["p50"]) == (1, 900)
     assert chat["first_token_ms"] == {"p50": None, "p95": None}
+
+
+async def test_a_database_from_before_reach_outs_were_answered_has_none_answered(
+    make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
+):
+    """Reach-outs recorded before had no column for whether they were answered: none were."""
+    with sqlite3.connect(settings.database_path) as db:
+        db.execute(
+            "CREATE TABLE activity_records (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT"
+            " NOT NULL, user_id TEXT, anonymous_id TEXT, character_id TEXT NOT NULL,"
+            " started_at REAL NOT NULL, result TEXT NOT NULL, own_keys INTEGER NOT NULL"
+            " DEFAULT 0, time_to_speak_ms REAL, call_id INTEGER, duration_s REAL, end_reason"
+            " TEXT, affinity_level INTEGER, out_of_line INTEGER, manipulation INTEGER, cooled"
+            " INTEGER, ended_conversation TEXT)"
+        )
+        db.execute(
+            "INSERT INTO activity_records (kind, anonymous_id, character_id, started_at, result)"
+            " VALUES ('reach_out', 'someone', 'mano', ?, 'success')",
+            ((START - timedelta(hours=1)).timestamp(),),
+        )
+
+    admin = await admin_client(make_client, github, FakeClock())
+
+    assert (await dashboard(admin))["reach_outs"] == {
+        "succeeded": 1, "failed": 0, "answered_share": 0,
+    }
 
 
 async def test_an_llm_call_records_how_much_of_its_input_hit_the_cache(tmp_path: Path):

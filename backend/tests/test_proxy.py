@@ -251,6 +251,88 @@ async def test_a_socks5_proxy_is_spoken_to_in_socks5(provider: FakeProvider):
     assert provider.hits == 0
 
 
+@dataclass
+class StallingProxy:
+    """An HTTP proxy that tunnels CONNECT, then says nothing more: TLS through it never
+    starts. It answers a request in absolute form itself, 200. `handshakes` counts the TLS
+    handshakes begun through it."""
+
+    url: str = ""
+    handshakes: int = 0
+
+    async def start(self) -> None:
+        self._server = await asyncio.start_server(self._serve, "127.0.0.1", 0)
+        self.url = f"http://127.0.0.1:{self._server.sockets[0].getsockname()[1]}"
+
+    async def aclose(self) -> None:
+        self._server.close()
+        await self._server.wait_closed()
+
+    async def _serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        head = await reader.readuntil(b"\r\n\r\n")
+        if not head.startswith(b"CONNECT "):
+            writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+            await writer.drain()
+            writer.close()
+            return
+        writer.write(b"HTTP/1.1 200 Connection established\r\n\r\n")
+        await writer.drain()
+        try:
+            if await reader.read(65536):  # the client's hello
+                self.handshakes += 1
+            while await reader.read(65536):
+                pass
+        except ConnectionError:
+            pass
+        writer.close()
+
+
+@pytest.fixture
+async def stalling() -> AsyncIterator[StallingProxy]:
+    fake = StallingProxy()
+    await fake.start()
+    yield fake
+    await fake.aclose()
+
+
+POOL_LIMIT = 100
+"""How many connections an httpx client keeps at most."""
+
+GIVEN_UP = httpx.Timeout(5, connect=0.2, pool=1)
+
+
+async def test_tunnels_whose_tls_timed_out_leave_the_pool_room(stalling: StallingProxy):
+    routes = ProxyRoutes(ProxySettings(stalling.url, True, frozenset({"judge"})))
+    async with routes.client("judge", GIVEN_UP) as client:
+        failed = await asyncio.gather(
+            *(client.post("https://provider.example/systemone") for _ in range(POOL_LIMIT)),
+            return_exceptions=True,
+        )
+        assert all(isinstance(e, httpx.ConnectTimeout) for e in failed)
+        res = await client.get("http://provider.example/")
+    await routes.aclose()
+
+    assert res.text == "ok"
+
+
+async def test_tunnels_given_up_on_as_tls_starts_leave_the_pool_room(stalling: StallingProxy):
+    routes = ProxyRoutes(ProxySettings(stalling.url, True, frozenset({"judge"})))
+    async with routes.client("judge", httpx.Timeout(5, pool=1)) as client:
+        requests = [
+            asyncio.ensure_future(client.post("https://provider.example/systemone"))
+            for _ in range(POOL_LIMIT)
+        ]
+        while stalling.handshakes < POOL_LIMIT:
+            await asyncio.sleep(0.01)
+        for request in requests:
+            request.cancel()
+        await asyncio.gather(*requests, return_exceptions=True)
+        res = await client.get("http://provider.example/")
+    await routes.aclose()
+
+    assert res.text == "ok"
+
+
 # Speech: over websockets, the deployer's keys through the proxy, users' own direct.
 
 
@@ -320,14 +402,18 @@ KNOWN = "https://llm.known.example/v1"
 
 @pytest.fixture
 def catalog(settings: Settings) -> Catalog:
-    """The price catalogs as fetched: a provider at `KNOWN`, and those that are not on the
-    internet by name: one run on this machine, as models.dev lists LM Studio, and others
-    at an address or a name for this machine."""
+    """The price catalogs as fetched: a provider at `KNOWN`, one whose model says it is
+    served at an address of its own, and those that are not on the internet by name: one
+    run on this machine, as models.dev lists LM Studio, and others at an address or a name
+    for this machine."""
     fake = FakeCatalog({
         "known": {"id": "known", "api": KNOWN, "models": {}},
         "lmstudio": {"id": "lmstudio", "api": "http://lmstudio.example/v1", "models": {}},
         "private": {"id": "private", "api": "https://10.0.0.8/v1", "models": {}},
         "loopback": {"id": "loopback", "api": "https://llm.localhost/v1", "models": {}},
+        "relayed": {"id": "relayed", "models": {
+            "m": {"id": "m", "provider": {"api": "https://llm.relayed.example/anthropic/v1"}},
+        }},
     })
     catalog = Catalog(settings.database_path, FakeClock(), fake.transport())
     catalog.refresh()
@@ -437,8 +523,8 @@ def test_known_providers_are_the_catalogs_hosts_and_those_written_down_by_name_o
     known = [
         host for host in (
             "llm.known.example", "LLM.Known.Example", "generativelanguage.googleapis.com",
-            "openrouter.ai", "lmstudio.example", "10.0.0.8", "llm.localhost",
-            "llm.unknown.example",
+            "openrouter.ai", "llm.relayed.example", "lmstudio.example", "10.0.0.8",
+            "llm.localhost", "llm.unknown.example",
         )
         if catalog.known_provider(host)
     ]
@@ -446,7 +532,7 @@ def test_known_providers_are_the_catalogs_hosts_and_those_written_down_by_name_o
 
     assert known == [
         "llm.known.example", "LLM.Known.Example", "generativelanguage.googleapis.com",
-        "openrouter.ai",
+        "openrouter.ai", "llm.relayed.example",
     ]
 
 

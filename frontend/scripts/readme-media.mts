@@ -15,6 +15,7 @@
  * 用 Fish Audio 的声音回答；每通电话都在她的对话里记下一个回合，所以先拍手机的对话页再打电话。
  * 礼物页那张不真抽奖：直接往开发库（`--database`，默认 backend/data/eidolon.db）里写下固定的背包、一张重置卡和
  * 几次抽奖次数，每次重跑都一样；后端要配判断模型，「好感度和礼物」开着。
+ * 照片那张要她真发一张：后端要配判断模型和生图（NOVELAI_API_KEY），第一次准备演示对话时花一张图的额度。
  * `--only` 只拍列出的几项，例如 `--only landing,app`；落地页的滚动动图（landing-tour）一步一拍，要十几分钟。
  *
  * 需要 Playwright 的 Chromium 和 PATH 里的 ffmpeg（带 libwebp）。退出码：0 成功；1 参数或登录有误；
@@ -63,6 +64,8 @@ const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isM
  * （跨角色共享的记忆）；真乃的第二句问的是原作剧情（回顾剧情）。
  */
 const SEED: { character: string; turns: string[] }[] = [
+  // 最先聊，排在列表最下面，不挤掉上面三位。
+  { character: "meguru", turns: ["めぐる，你现在在干嘛呀？", "拍张照片给我看看吧！"] },
   { character: "hiori", turns: ["灯織，跟你说件事：我前几天领养了一只小猫，取名叫小白。"] },
   {
     character: "kogane",
@@ -77,6 +80,8 @@ const SEED: { character: string; turns: string[] }[] = [
 const FEATURED = "kogane";
 /** 通话那几张打给谁。 */
 const CALLEE = "mano";
+/** 照片那张打开谁的对话：她在 SEED 里被要了一张照片。 */
+const PHOTOGRAPHER = "meguru";
 /** 通话里对她说的话（假麦克风念出来）。 */
 const CALL_LINE = "真乃，最近有没有遇到什么开心的事？";
 /** 礼物页上背包里的礼物（目录 characters/gifts.toml 的 id 和件数）：几类、几档都有，两行正好排满。 */
@@ -106,6 +111,7 @@ const ITEMS: Item[] = [
   { name: "phone", take: phone },
   { name: "outfits", take: outfits },
   { name: "gifts", take: gifts },
+  { name: "photo", take: photo },
   { name: "call", take: call },
 ];
 
@@ -514,6 +520,26 @@ async function gifts(browser: Browser): Promise<void> {
     await page.getByRole("region", { name: "抽奖" }).waitFor();
     await settle(page);
     await still(page, "gifts");
+  } finally {
+    await context.close();
+  }
+}
+
+/** 她发来的照片在后台生成，回合结束后还要等一会儿；没等到就算没拍成。 */
+async function photo(browser: Browser): Promise<void> {
+  const context = await signedIn(browser, { ...DESKTOP, colorScheme: "light" });
+  try {
+    const page = await context.newPage();
+    const sent = page.getByRole("img", { name: "她发来的照片" });
+    for (let tries = 0; ; tries++) {
+      await page.goto(`${origin}/conversation/${PHOTOGRAPHER}`, { waitUntil: "networkidle" });
+      if ((await sent.count()) > 0) break;
+      if (tries >= 18) throw new Error("等了三分钟她还没发来照片：后端要配判断模型和生图，或者用 --reseed meguru 再要一次");
+      await sleep(10_000);
+    }
+    await sent.last().scrollIntoViewIfNeeded();
+    await settle(page, 1500);
+    await still(page, "photo");
   } finally {
     await context.close();
   }

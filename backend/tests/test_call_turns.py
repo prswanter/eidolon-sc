@@ -405,12 +405,14 @@ def without_emotions(messages: list[dict]) -> list[dict]:
 
 
 async def test_what_is_said_before_the_character_speaks_joins_the_turn(mano_call: CallUnderTest):
-    llm = FakeLLM(SLOW_REPLY, MANO_REPLY, delay=0.3)
+    # Slower than the others: her first reply must have begun, taking the first of the
+    # script, before the user goes on, and a slow runner may take a while to begin it.
+    llm = FakeLLM(SLOW_REPLY, MANO_REPLY, delay=0.6)
     memory = FakeBackgroundLLM()
 
     _, messages = await mano_call.run(
         llm,
-        [spoken("早上好"), SleepFrame(0.1), InterruptionFrame(), SleepFrame(0.1), spoken("在吗")],
+        [spoken("早上好"), SleepFrame(0.3), InterruptionFrame(), SleepFrame(0.1), spoken("在吗")],
         memory=memory,
     )
     messages = without_emotions(messages)

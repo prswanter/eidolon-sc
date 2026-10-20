@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import { AppLink } from "@/components/app/AppLink";
 import { AdminPage } from "@/components/app/admin/AdminPage";
 import { StatTile } from "@/components/app/admin/StatTile";
-import { StatusDot } from "@/components/app/admin/StatusDot";
+import { StatusDot } from "@/components/app/StatusDot";
 import { BackupCard } from "@/components/admin/BackupCard";
 import { CostSection } from "@/components/admin/CostSection";
 import {
@@ -14,6 +15,7 @@ import {
   CardPair,
   DashboardCard,
   DashboardGroup,
+  Folded,
   RowList,
   ShareBar,
   TableOrRows,
@@ -25,21 +27,24 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWhileVisible } from "@/hooks/useWhileVisible";
 import { copy } from "@/i18n";
 import {
   AFFINITY_LEVELS,
+  type AffinityRow,
   type AffinitySection,
   affinityRows,
   CALL_END_REASONS,
   CALL_RESULTS,
   countTicks,
-  ENDS_FOR,
   DASHBOARD_RANGES,
   DASHBOARD_REFRESH_MS,
+  DASHBOARD_TABS,
   type Dashboard,
+  dashboardHref,
   type DashboardRange,
+  type DashboardTab,
   durationRange,
   type ErrorKind,
   formatCacheHitRate,
@@ -54,13 +59,13 @@ import {
   getCallsInProgress,
   getDashboard,
   type HealthStatus,
-  healthEffort,
   healthRowId,
   healthRowName,
   healthStatus,
   healthSummary,
   isDashboardRange,
-  rangeHref,
+  isDashboardTab,
+  reachOutTiles,
   serviceName,
   splitZeroRows,
   strippedText,
@@ -71,7 +76,7 @@ import { FailureIcon } from "@/theme/icons";
 
 const t = copy.admin.dashboard;
 
-/** 页首健康摘要的锚点：链到「服务健康」那张卡。 */
+/** 页首健康摘要的锚点：链到「概览」里「服务健康」那张卡。 */
 const HEALTH_ANCHOR = "health";
 /** 摘要里最多点名几项有问题的服务，再多写「等 N 项」。 */
 const SUMMARY_NAMES = 3;
@@ -87,18 +92,19 @@ const FADE = "transition-opacity duration-200";
 const STALE = "opacity-45";
 
 /**
- * 看板（后台默认页）：时间范围切换；回合和通话的几个数字，进行中的通话数；回合和通话的趋势；回合结果；
- * 通话结果、时长和结束原因；服务健康（每项服务一行，部署者和自带密钥分开）；按角色的回合数和通话数；
- * 好感度生效时，判断的结果和冷却。
- * 数字全由后端汇总，这里只负责排版和格式化。
+ * 看板（后台默认页）：时间范围切换；页首下面一排分组标签，一次只看一组——「概览」（回合和通话的几个数字、
+ * 进行中的通话数、服务健康、备份）、「用量」（趋势、各种结果、通话时长、按角色、搭话）、「好感度」（好感度生效时才有）、
+ * 「花费」。数字全由后端汇总，这里只负责排版和格式化。
  *
  * 数字要看得出新旧：页首下面写「数据截至 16:25」，旁边可以手动刷新；页面看得见时每分钟自动重新取一次
  * （切到别的标签页就停，切回来时过了一分钟就马上取），自动刷新不闪、不变淡。切换时间范围或手动刷新时，
  * 新数字到之前旧的整体变淡并标 aria-busy，不让人把上一个范围的数字当成这个范围的。取不到时旧数字留着，
- * 提示写明下面是几点的数据。时间范围记在地址里（`?range=7d`），可以收藏、刷新不丢。
+ * 提示写明下面是几点的数据。时间范围和分组记在地址里（`?range=7d&tab=cost`），可以收藏、刷新不丢。
+ * 切走的分组不卸，展开过的长列表切回来还开着。
  */
-export function AdminDashboard({ initialRange }: { initialRange: DashboardRange }) {
+export function AdminDashboard({ initialRange, initialTab }: { initialRange: DashboardRange; initialTab: DashboardTab }) {
   const [range, setRange] = useState<DashboardRange>(initialRange);
+  const [tab, setTab] = useState<DashboardTab>(initialTab);
   const [board, setBoard] = useState<Dashboard | null>(null);
   const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
   /** 切换范围或手动刷新、新数字还没到：旧的变淡。自动刷新不算。 */
@@ -149,7 +155,18 @@ export function AdminDashboard({ initialRange }: { initialRange: DashboardRange 
   function chooseRange(value: string) {
     if (!isDashboardRange(value)) return;
     setRange(value);
-    window.history.replaceState(null, "", rangeHref(window.location.pathname, value));
+    window.history.replaceState(null, "", dashboardHref(window.location.pathname, value, tab));
+  }
+
+  function chooseTab(value: string) {
+    if (!isDashboardTab(value)) return;
+    setTab(value);
+    window.history.replaceState(null, "", dashboardHref(window.location.pathname, range, value));
+  }
+
+  /** 点了页首的「看服务健康」：先同步切回「概览」，让那张卡露出来，链接再照常滚过去。 */
+  function showHealth() {
+    if (tab !== "overview") flushSync(() => chooseTab("overview"));
   }
 
   function refresh() {
@@ -184,7 +201,7 @@ export function AdminDashboard({ initialRange }: { initialRange: DashboardRange 
         {/* 健康结论也是上一个范围的，和下面的数字一起变淡。 */}
         {board && (
           <div className={cn(FADE, faded && STALE)}>
-            <HealthSummary board={board} />
+            <HealthSummary board={board} onShow={showHealth} />
           </div>
         )}
         <Freshness stamp={stamp} loading={loading} onRefresh={refresh} />
@@ -203,7 +220,15 @@ export function AdminDashboard({ initialRange }: { initialRange: DashboardRange 
       {board === null ? (
         error === null && <Skeleton className="h-80" />
       ) : (
-        <DashboardBody board={board} inProgress={inProgress} loading={loading} faded={faded} refreshes={refreshes} />
+        <DashboardBody
+          board={board}
+          tab={tab}
+          onTab={chooseTab}
+          inProgress={inProgress}
+          loading={loading}
+          faded={faded}
+          refreshes={refreshes}
+        />
       )}
     </AdminPage>
   );
@@ -235,9 +260,9 @@ function Freshness({ stamp, loading, onRefresh }: { stamp: string | null; loadin
 
 /**
  * 页首下面的一句健康结论：都正常、没有调用（只写 muted 字），或者点名出问题的服务（最糟的在前，带琥珀或红点），
- * 链到「服务健康」那张卡。只占一行，首屏的主体仍是下面回答「用了多少」的数字卡。
+ * 链到「概览」里「服务健康」那张卡（在别的分组时先切回「概览」）。只占一行。
  */
-function HealthSummary({ board }: { board: Dashboard }) {
+function HealthSummary({ board, onShow }: { board: Dashboard; onShow: () => void }) {
   const summary = healthSummary(board.health);
   const words = t.health.summary;
   let text: string;
@@ -264,7 +289,7 @@ function HealthSummary({ board }: { board: Dashboard }) {
       ) : (
         <span className="text-muted-foreground">{text}</span>
       )}
-      <AppLink href={`#${HEALTH_ANCHOR}`} className="inline-flex items-center max-md:min-h-11">
+      <AppLink href={`#${HEALTH_ANCHOR}`} onClick={onShow} className="inline-flex items-center max-md:min-h-11">
         {words.link}
       </AppLink>
     </p>
@@ -272,18 +297,24 @@ function HealthSummary({ board }: { board: Dashboard }) {
 }
 
 /**
- * 先回答「用了多少」：两组数字卡（「此刻」一张，「{范围}内」五张，手机上只留回合、通话、活跃用户三张）；
- * 紧接着是服务健康（出事时第一眼要看到，页首已有一句结论）和备份；然后是「用量」一组，各张卡宽屏两张一排；
- * 好感度生效时是「好感度」一组；最后是「花费」一组。
+ * 分组标签（下划线样式，和页首胶囊样式的时间范围分开）和各组的内容：
+ * - 「概览」：两组数字卡（「此刻」一张，「{范围}内」五张，手机上只留回合、通话、活跃用户三张）、服务健康、备份。
+ * - 「用量」：趋势、结果、通话时长、结束原因各一张卡，宽屏两张一排；下面是按角色，再下面「搭话」三张数字卡（为空时没有）。
+ * - 「好感度」：好感度生效时才有这个标签；地址里要了它而好感度没开时，显示「概览」。
+ * - 「花费」。
  */
 function DashboardBody({
   board,
+  tab,
+  onTab,
   inProgress,
   loading,
   faded,
   refreshes,
 }: {
   board: Dashboard;
+  tab: DashboardTab;
+  onTab: (value: string) => void;
   inProgress: number | null;
   loading: boolean;
   /** 眼前是上一个范围的数字，或者新数字还在路上：按范围统计的部分变淡，「此刻」那张和备份不变。 */
@@ -292,65 +323,70 @@ function DashboardBody({
 }) {
   const { turns, calls } = board;
   const fade = cn(FADE, faded && STALE);
+  const tabs = DASHBOARD_TABS.filter((name) => name !== "affinity" || board.affinity !== null);
+  const shown = tabs.includes(tab) ? tab : "overview";
   return (
-    <div aria-busy={loading} className="flex flex-col gap-6">
-      {/* 「进行中的通话」是此刻的数，不随时间范围变：单独一组放在前面，和按范围统计的几张隔开。
-          宽屏（≥ 1280px）左右排，此刻一张占一份、范围五张占五份；更窄时上下排，此刻那张仍按同样的格子只占一格。 */}
-      <div className="grid gap-6 xl:grid-cols-[1fr_5fr]">
-        <TileGroup caption={t.tiles.now} grid="grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-1">
-          <StatTile
-            label={t.tiles.callsInProgress}
-            value={inProgress === null ? "—" : formatCount(inProgress)}
-            note={t.tiles.callsInProgressNote}
-          />
-        </TileGroup>
-        <TileGroup caption={t.tiles.inRange(t.ranges[board.range])} className={fade}>
-          <StatTile
-            label={t.tiles.turns}
-            value={formatCount(turns.total)}
-            note={t.tiles.turnsInCalls(formatCount(turns.in_calls))}
-          />
-          <StatTile
-            label={t.tiles.calls}
-            value={formatCount(calls.total)}
-            note={t.tiles.callsExempt(formatCount(calls.own_keys))}
-          />
-          <StatTile label={t.tiles.activeUsers} value={formatCount(board.active_users)} note={t.tiles.activeUsersNote} />
-          {/* 这两张手机上不显示。外面包一层 grid，卡片仍撑满格子的高。 */}
-          <div className="grid max-md:hidden">
+    <Tabs value={shown} onValueChange={(value) => onTab(String(value))} aria-busy={loading} className="gap-6">
+      <TabsList variant="line" aria-label={t.tabsLabel}>
+        {tabs.map((name) => (
+          <TabsTrigger key={name} value={name}>
+            {t.tabs[name]}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+
+      <TabsContent value="overview" keepMounted className="flex flex-col gap-6">
+        {/* 「进行中的通话」是此刻的数，不随时间范围变：单独一组放在前面，和按范围统计的几张隔开。
+            宽屏（≥ 1280px）左右排，此刻一张占一份、范围五张占五份；更窄时上下排，此刻那张仍按同样的格子只占一格。 */}
+        <div className="grid gap-6 xl:grid-cols-[1fr_5fr]">
+          <TileGroup caption={t.tiles.now} grid="grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-1">
             <StatTile
-              label={t.tiles.ownKeys}
-              value={formatCount(turns.own_keys)}
-              note={t.tiles.ownKeysShare(formatShare(turns.own_keys, turns.total))}
+              label={t.tiles.callsInProgress}
+              value={inProgress === null ? "—" : formatCount(inProgress)}
             />
-          </div>
-          <div className="grid max-md:hidden">
+          </TileGroup>
+          <TileGroup caption={t.tiles.inRange(t.ranges[board.range])} className={fade}>
             <StatTile
-              label={t.tiles.timeToSpeak}
-              value={formatMs(turns.time_to_speak_ms.p50)}
-              note={
-                turns.time_to_speak_ms.p90 === null ? undefined : t.tiles.timeToSpeakP90(formatMs(turns.time_to_speak_ms.p90))
-              }
+              label={t.tiles.turns}
+              value={formatCount(turns.total)}
+              note={t.tiles.turnsInCalls(formatCount(turns.in_calls))}
             />
-          </div>
-        </TileGroup>
-      </div>
+            <StatTile
+              label={t.tiles.calls}
+              value={formatCount(calls.total)}
+              note={t.tiles.callsExempt(formatCount(calls.own_keys))}
+            />
+            <StatTile label={t.tiles.activeUsers} value={formatCount(board.active_users)} />
+            {/* 这两张手机上不显示。外面包一层 grid，卡片仍撑满格子的高。 */}
+            <div className="grid max-md:hidden">
+              <StatTile
+                label={t.tiles.ownKeys}
+                value={formatCount(turns.own_keys)}
+                note={t.tiles.ownKeysShare(formatShare(turns.own_keys, turns.total))}
+              />
+            </div>
+            <div className="grid max-md:hidden">
+              <StatTile
+                label={t.tiles.timeToSpeak}
+                value={formatMs(turns.time_to_speak_ms.p50)}
+                note={
+                  turns.time_to_speak_ms.p90 === null ? undefined : t.tiles.timeToSpeakP90(formatMs(turns.time_to_speak_ms.p90))
+                }
+              />
+            </div>
+          </TileGroup>
+        </div>
 
-      <DashboardCard
-        id={HEALTH_ANCHOR}
-        title={t.health.title}
-        hint={t.health.hint}
-        level={2}
-        className={cn("scroll-mt-16", fade)}
-      >
-        <HealthTable board={board} />
-      </DashboardCard>
+        <DashboardCard id={HEALTH_ANCHOR} title={t.health.title} level={2} className={cn("scroll-mt-16", fade)}>
+          <HealthTable board={board} />
+        </DashboardCard>
 
-      {/* 备份是此刻的状态，不随时间范围变，也不变淡。 */}
-      <BackupCard refreshKey={refreshes} />
+        {/* 备份是此刻的状态，不随时间范围变，也不变淡。 */}
+        <BackupCard refreshKey={refreshes} />
+      </TabsContent>
 
-      <div className={cn("flex flex-col gap-6", fade)}>
-        <DashboardGroup title={t.groups.usage.title} hint={t.groups.usage.hint}>
+      <TabsContent value="usage" keepMounted className={fade}>
+        <DashboardGroup title={t.groups.usage.title}>
           <CardPair>
             <DashboardCard title={t.trend.turns.title} hint={t.trend.turns.hint[board.bucket]}>
               <CountTrend board={board} series="turns" />
@@ -358,7 +394,7 @@ function DashboardBody({
             <DashboardCard title={t.trend.calls.title} hint={t.trend.calls.hint[board.bucket]}>
               <CountTrend board={board} series="calls" />
             </DashboardCard>
-            <DashboardCard title={t.results.title} hint={t.results.hint}>
+            <DashboardCard title={t.results.title}>
               <CountsTable
                 rows={TURN_RESULTS.map((result) => ({ id: result, label: t.results.names[result], count: turns.by_result[result] }))}
                 total={turns.total}
@@ -367,7 +403,7 @@ function DashboardBody({
                 shareHeader={t.results.share}
               />
             </DashboardCard>
-            <DashboardCard title={t.callResults.title} hint={t.callResults.hint}>
+            <DashboardCard title={t.callResults.title}>
               <CountsTable
                 rows={CALL_RESULTS.map((result) => ({ id: result, label: t.callResults.names[result], count: calls.by_result[result] }))}
                 total={calls.total}
@@ -382,7 +418,7 @@ function DashboardBody({
             >
               <DurationsTable board={board} />
             </DashboardCard>
-            <DashboardCard title={t.endReasons.title} hint={t.endReasons.hint}>
+            <DashboardCard title={t.endReasons.title}>
               <CountsTable
                 rows={CALL_END_REASONS.map((reason) => ({ id: reason, label: t.endReasons.names[reason], count: calls.end_reasons[reason] }))}
                 total={CALL_END_REASONS.reduce((sum, reason) => sum + calls.end_reasons[reason], 0)}
@@ -395,13 +431,20 @@ function DashboardBody({
           <DashboardCard title={t.characters.title}>
             <CharactersTable board={board} />
           </DashboardCard>
+          <ReachOutTiles board={board} />
         </DashboardGroup>
+      </TabsContent>
 
-        {board.affinity !== null && <AffinityGroup section={board.affinity} />}
+      {board.affinity !== null && (
+        <TabsContent value="affinity" keepMounted className={fade}>
+          <AffinityGroup section={board.affinity} />
+        </TabsContent>
+      )}
 
+      <TabsContent value="cost" keepMounted className={fade}>
         <CostSection board={board} />
-      </div>
-    </div>
+      </TabsContent>
+    </Tabs>
   );
 }
 
@@ -556,7 +599,6 @@ function HealthTable({ board }: { board: Dashboard }) {
           <TableHeader>
             <TableRow>
               <TableHead>{t.health.service}</TableHead>
-              <TableHead>{t.health.effort}</TableHead>
               <TableHead>{t.health.status}</TableHead>
               <TableHead className="text-right">{t.health.calls}</TableHead>
               <TableHead className="text-right">{t.health.errorRate}</TableHead>
@@ -575,7 +617,6 @@ function HealthTable({ board }: { board: Dashboard }) {
                   {row.own_key && <span className="block text-xs text-muted-foreground">{t.health.own}</span>}
                   <StrippedNote row={row} />
                 </TableCell>
-                <TableCell>{healthEffort(row) ?? "—"}</TableCell>
                 <TableCell>
                   <HealthStatusText status={healthStatus(row)} />
                 </TableCell>
@@ -661,41 +702,58 @@ function CharactersTable({ board }: { board: Dashboard }) {
   const name = (c: Dashboard["characters"][number]) =>
     c.name ?? <span className="text-muted-foreground">{t.characters.removed}</span>;
   return (
-    <TableOrRows
-      table={
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t.characters.character}</TableHead>
-              <TableHead className="w-2/5" />
-              <TableHead className="text-right">{t.characters.turns}</TableHead>
-              <TableHead className="text-right">{t.characters.calls}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody className={BAR_BODY}>
-            {board.characters.map((c) => (
-              <TableRow key={c.character_id} className={BAR_ROW}>
-                <TableCell>{name(c)}</TableCell>
-                <TableCell>
-                  <ShareBar part={c.turns} whole={most} />
-                </TableCell>
-                <TableCell className="text-right tabular-nums">{formatCount(c.turns)}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatCount(c.calls)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      }
-      rows={
-        <RowList
-          rows={board.characters.map((c) => ({
-            id: c.character_id,
-            label: name(c),
-            end: `${t.characters.turns} ${formatCount(c.turns)} · ${t.characters.calls} ${formatCount(c.calls)}`,
-          }))}
+    <Folded rows={board.characters}>
+      {(shown) => (
+        <TableOrRows
+          table={
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t.characters.character}</TableHead>
+                  <TableHead className="w-2/5" />
+                  <TableHead className="text-right">{t.characters.turns}</TableHead>
+                  <TableHead className="text-right">{t.characters.calls}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody className={BAR_BODY}>
+                {shown.map((c) => (
+                  <TableRow key={c.character_id} className={BAR_ROW}>
+                    <TableCell>{name(c)}</TableCell>
+                    <TableCell>
+                      <ShareBar part={c.turns} whole={most} />
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{formatCount(c.turns)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatCount(c.calls)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          }
+          rows={
+            <RowList
+              rows={shown.map((c) => ({
+                id: c.character_id,
+                label: name(c),
+                end: `${t.characters.turns} ${formatCount(c.turns)} · ${t.characters.calls} ${formatCount(c.calls)}`,
+              }))}
+            />
+          }
         />
-      }
-    />
+      )}
+    </Folded>
+  );
+}
+
+/** 「用量」里的「搭话」一小节：成功、失败、被回了三张数字卡；为空时（总开关关着、范围内也没有搭话）不显示。 */
+function ReachOutTiles({ board }: { board: Dashboard }) {
+  const tiles = reachOutTiles(board.reach_outs);
+  if (tiles.length === 0) return null;
+  return (
+    <TileGroup caption={t.reachOuts.title} grid="grid-cols-2 md:grid-cols-3">
+      {tiles.map((tile) => (
+        <StatTile key={tile.id} label={tile.label} value={tile.value} />
+      ))}
+    </TileGroup>
   );
 }
 
@@ -707,22 +765,18 @@ function AffinityGroup({ section }: { section: AffinitySection }) {
   const words = t.affinity;
   const judged = section.levels.reduce((sum, n) => sum + n, 0);
   return (
-    <DashboardGroup title={words.title} hint={words.hint}>
+    <DashboardGroup title={words.title}>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <StatTile
           label={words.tiles.cooldowns}
           value={formatCount(section.cooldowns)}
           note={words.tiles.cooledUsers(formatCount(section.cooled_users))}
         />
-        <StatTile label={words.tiles.outOfLine} value={formatCount(section.out_of_line)} note={words.tiles.outOfLineNote} />
-        <StatTile
-          label={words.tiles.manipulation}
-          value={formatCount(section.manipulation)}
-          note={words.tiles.manipulationNote}
-        />
+        <StatTile label={words.tiles.outOfLine} value={formatCount(section.out_of_line)} />
+        <StatTile label={words.tiles.manipulation} value={formatCount(section.manipulation)} />
       </div>
       <CardPair>
-        <DashboardCard title={words.levels.title} hint={words.levels.hint}>
+        <DashboardCard title={words.levels.title}>
           <CountsTable
             rows={AFFINITY_LEVELS.map((level) => ({
               id: String(level),
@@ -736,7 +790,7 @@ function AffinityGroup({ section }: { section: AffinitySection }) {
           />
         </DashboardCard>
       </CardPair>
-      <DashboardCard title={words.characters.title} hint={words.characters.hint}>
+      <DashboardCard title={words.characters.title}>
         <AffinityCharactersTable section={section} />
       </DashboardCard>
     </DashboardGroup>
@@ -744,65 +798,55 @@ function AffinityGroup({ section }: { section: AffinitySection }) {
 }
 
 /**
- * 按角色的好感度表：顺序是后端排好的；宽屏十列，「角色挂断」旁边是「结束对话」按三种原因分开的三列，
- * 表头两行；更窄时每行末尾「减分 {x}% · 冷却 {n}」，其余放副行。
+ * 按角色的好感度表：顺序是后端排好的（判断过的回合多的在前），默认收起；宽屏六列，加分和减分占比并排；
+ * 更窄时每行末尾「加分 {x}% · 减分 {y}%」，其余放副行。
  */
 function AffinityCharactersTable({ section }: { section: AffinitySection }) {
   const words = t.affinity.characters;
   if (section.characters.length === 0) return <p className="text-sm text-muted-foreground">{words.empty}</p>;
-  const rows = affinityRows(section.characters);
-  const name = (row: (typeof rows)[number]) =>
-    row.name ?? <span className="text-muted-foreground">{t.characters.removed}</span>;
+  const name = (row: AffinityRow) => row.name ?? <span className="text-muted-foreground">{t.characters.removed}</span>;
   return (
-    <TableOrRows
-      at="xl"
-      table={
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead rowSpan={2}>{words.character}</TableHead>
-              <TableHead rowSpan={2} className="text-right">{words.judged}</TableHead>
-              <TableHead rowSpan={2} className="text-right">{words.lowered}</TableHead>
-              <TableHead rowSpan={2} className="text-right">{words.cooldowns}</TableHead>
-              <TableHead rowSpan={2} className="text-right">{words.outOfLine}</TableHead>
-              <TableHead rowSpan={2} className="text-right">{words.manipulation}</TableHead>
-              <TableHead rowSpan={2} className="text-right">{words.hungUp}</TableHead>
-              <TableHead colSpan={ENDS_FOR.length} className="text-center">{words.ended}</TableHead>
-            </TableRow>
-            <TableRow>
-              {ENDS_FOR.map((why) => (
-                <TableHead key={why} className="text-right">{words.endsFor[why]}</TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((row) => (
-              <TableRow key={row.id}>
-                <TableCell>{name(row)}</TableCell>
-                <TableCell className="text-right tabular-nums">{row.judged}</TableCell>
-                <TableCell className="text-right tabular-nums">{row.lowered}</TableCell>
-                <TableCell className="text-right tabular-nums">{row.cooldowns}</TableCell>
-                <TableCell className="text-right tabular-nums">{row.out_of_line}</TableCell>
-                <TableCell className="text-right tabular-nums">{row.manipulation}</TableCell>
-                <TableCell className="text-right tabular-nums">{row.hung_up}</TableCell>
-                {ENDS_FOR.map((why) => (
-                  <TableCell key={why} className="text-right tabular-nums">{row.ended[why]}</TableCell>
+    <Folded rows={affinityRows(section.characters)}>
+      {(shown) => (
+        <TableOrRows
+          table={
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{words.character}</TableHead>
+                  <TableHead className="text-right">{words.judged}</TableHead>
+                  <TableHead className="text-right">{words.raised}</TableHead>
+                  <TableHead className="text-right">{words.lowered}</TableHead>
+                  <TableHead className="text-right">{words.cooldowns}</TableHead>
+                  <TableHead className="text-right">{words.sheEnded}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {shown.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell>{name(row)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.judged}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.raised}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.lowered}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.cooldowns}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.she_ended}</TableCell>
+                  </TableRow>
                 ))}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      }
-      rows={
-        <RowList
-          rows={rows.map((row) => ({
-            id: row.id,
-            label: name(row),
-            end: row.end,
-            description: <span className="tabular-nums">{row.details}</span>,
-          }))}
+              </TableBody>
+            </Table>
+          }
+          rows={
+            <RowList
+              rows={shown.map((row) => ({
+                id: row.id,
+                label: name(row),
+                end: row.end,
+                description: <span className="tabular-nums">{row.details}</span>,
+              }))}
+            />
+          }
         />
-      }
-    />
+      )}
+    </Folded>
   );
 }

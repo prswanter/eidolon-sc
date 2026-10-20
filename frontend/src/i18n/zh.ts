@@ -30,6 +30,8 @@ export const zh = {
   nav: {
     label: "导航",
     conversations: "对话",
+    /** 「对话」图标上有点时读屏读的名字：列表里有一行有没看过的搭话。 */
+    conversationsUnseen: "对话，有没看过的搭话",
     gifts: "礼物",
     settings: "设置",
   },
@@ -72,6 +74,23 @@ export const zh = {
       onlyAHint: "仅供参考，不影响保存。",
     },
   },
+  /** 选 LLM 的服务商和模型（ADR-0027）：设置页的自带 LLM 和后台的模型共用。 */
+  llmPicker: {
+    provider: "服务商",
+    providerHint: "选你用的服务商或编程套餐，接口类型和地址会自动填好。找不到就选「手动填写」。",
+    manual: "手动填写",
+    search: "搜索服务商，例如 DeepSeek、智谱、Coding Plan",
+    noProvider: "没有找到这家，可以选「手动填写」",
+    model: "选择模型",
+    modelHint: "选了会填好下面的模型名和接口类型。列表里没有的，直接填模型名。",
+    modelPlaceholder: "从列表里选",
+    modelSearch: "搜索模型",
+    noModel: "没有找到这个模型，可以直接在模型名里填",
+    fetch: "获取可用模型",
+    fetching: "获取中…",
+    fetched: (n: number) => `服务商列出了 ${n} 个模型。`,
+    fetchNeedsKey: "填好接口地址和 API key 后可以获取。",
+  },
   conversationList: {
     title: "对话",
     noneSelected: "选一位偶像开始对话",
@@ -98,6 +117,8 @@ export const zh = {
     show: "在列表中显示",
     /** 置顶那一行时间旁边的图钉，给读屏读的。 */
     pinned: "已置顶",
+    /** 时间前面她颜色的小圆点（GLOSSARY.md「没看过的搭话」），给读屏读的。 */
+    unseen: "有没看过的搭话",
     /** 搜索框右边的筛选按钮；有人被隐藏时读出人数。 */
     filter: "筛选列表",
     filterHidden: (count: string) => `筛选列表，已隐藏 ${count} 位`,
@@ -119,7 +140,24 @@ export const zh = {
     announcementsLoadFailed: "公告没能载入，稍后再试",
     /** 没读过的那条公告，日期后面的标记。 */
     unreadAnnouncement: "新",
+    /** 置顶的那条公告，日期后面的标记。 */
+    pinnedAnnouncement: "置顶",
     markAnnouncementsRead: "已读",
+    /** 铃铛旁边的服务状态和它打开的小窗口（GLOSSARY.md「服务状态」）；有服务不正常时按钮念后一句。 */
+    serviceStatus: "服务状态",
+    serviceStatusFailing: "服务状态，有服务不正常",
+    serviceStatusNames: {
+      chat_llm: "对话",
+      memory_llm: "记忆",
+      tts: "语音合成",
+      stt: "语音识别",
+      judge: "判断",
+      embedding: "检索",
+      rerank: "重排",
+      image: "照片",
+    },
+    serviceStatuses: { ok: "正常", unsteady: "不稳定", down: "故障", idle: "最近没有调用" },
+    serviceStatusWindow: (minutes: number) => `最近 ${minutes} 分钟`,
   },
   conversation: {
     back: "返回对话列表",
@@ -498,15 +536,17 @@ export const zh = {
   settings: {
     title: "设置",
     loading: "正在读取…",
-    /** 设置一级的八类，也是各自二级页首的名字。「登录与数据」不叫「账号」：GLOSSARY 把它列为避免的说法。 */
+    /** 设置一级的十类，也是各自二级页首的名字。「登录与数据」不叫「账号」：GLOSSARY 把它列为避免的说法。 */
     categories: {
       profile: "档案",
       memories: "记忆",
       stats: "统计",
       call: "通话",
+      "reach-outs": "搭话",
       appearance: "外观",
       "own-keys": "自带密钥",
       "sign-in": "登录与数据",
+      "data-package": "数据包",
       about: "关于",
     },
     /** 一级每行名字下面的当前值摘要（「关于」没有）。 */
@@ -520,6 +560,8 @@ export const zh = {
       phoneTextureOff: "电话质感关",
       scspAvatarsOn: "SCSP 头像开",
       scspAvatarsOff: "SCSP 头像关",
+      reachOutsOn: "开",
+      reachOutsOff: "关",
       ownKeysNone: "全部用部署者的服务",
       ownKeys: (services: string) => `已填 ${services}`,
     },
@@ -578,6 +620,11 @@ export const zh = {
         turnsUnit: "回合",
       },
     },
+    /** 一级里「关于」上面的「赞赏」（GLOSSARY.md「赞赏」）：名字，点开放大的收款码给读屏的标题和替代文字。 */
+    sponsor: {
+      label: "赞赏",
+      code: "赞赏收款码",
+    },
     /** 「关于」的四行和最下面的免责声明（应用里只留这一处）。 */
     about: {
       site: "关于 Eidolon-SC",
@@ -612,6 +659,9 @@ export const zh = {
       saving: "正在保存…",
       unsaved: "尚未保存",
       saved: "已保存，所有设备共用这份档案",
+    },
+    reachOuts: {
+      on: "她们会主动搭话",
     },
     appearance: {
       scspAvatars: "SCSP 头像",
@@ -735,6 +785,46 @@ export const zh = {
       hint: "你是这套部署的管理者，可以在后台查看看板、修改配置和管理用户。",
       enter: "进入后台",
     },
+    /** 数据包（GLOSSARY.md「数据包」）：导出带走、导入接着用。 */
+    dataPackage: {
+      exportTitle: "导出",
+      exportHint: "把你的数据下载成一个文件，带到这里或别的部署导入。",
+      categories: {
+        conversations: "对话",
+        photos: "照片",
+        memories: "记忆",
+        profile: "制作人档案",
+      },
+      export: "导出",
+      importTitle: "导入",
+      importHint: "导入的内容并进你现有的数据。",
+      chooseFile: "选择数据包",
+      import: "导入",
+      importing: "正在导入…",
+      reading: "正在读取…",
+      nothingToChoose: "这个数据包里没有能导入的内容。",
+      /** 「导入了 3 段对话、2 张照片。」 */
+      imported: (counts: string) => `导入了 ${counts}。`,
+      importedWithProfile: (counts: string) => `导入了 ${counts}和制作人档案。`,
+      importedProfile: "导入了制作人档案。",
+      count: {
+        conversations: (n: number) => `${n} 段对话`,
+        photos: (n: number) => `${n} 张照片`,
+        memories: (n: number) => `${n} 条记忆`,
+      },
+      separator: "、",
+      nothingNew: "没有新的内容要导入。",
+      /** 「跳过了和月岡恋鐘的 2 段、櫻木真乃的 1 段对话，这里没有她们。」 */
+      skipped: (parts: string, many: boolean) => `跳过了和${parts}对话，这里没有${many ? "她们" : "她"}。`,
+      skippedPart: (name: string, n: number) => `${name}的 ${n} 段`,
+      failures: {
+        broken: "这不是一个能用的数据包",
+        too_new: "这个数据包来自更新的版本，请部署者升级后再导入",
+        too_large: "数据包太大了（最大 200 MB），可以不带照片重新导出",
+        busy: "已经有一个数据包在导入或导出",
+      },
+      usedUp: (time: string) => `今天的导入次数用完了，${time} 以后可以再导入`,
+    },
     deleteAccount: {
       title: "删除我的全部数据",
       hint: "彻底删除你在这里的所有数据，无法恢复。",
@@ -744,6 +834,7 @@ export const zh = {
       confirmHint:
         "彻底删除你的记忆、对话、制作人档案、登录方式、登录状态和限额的计数，无法恢复，这个浏览器里的自带密钥也一并清除；每天的加密备份里的副本最多 30 天后清除。运行记录会保留到期满 90 天，但不再关联到你。所有设备都会退出登录；之后再用同一种登录方式登录，会是一位全新的用户。",
       confirm: "确认删除，无法恢复",
+      exportFirst: "先导出数据包",
     },
   },
   admin: {
@@ -780,9 +871,11 @@ export const zh = {
       unknown: (n: string) => `${n} 次未知`,
     },
     dashboard: {
-      intro: "各项服务是否正常、用的人多不多、部署者大约花了多少钱。数字来自运行记录，不含任何对话内容；运行记录保留 90 天。",
+      intro: "服务是否正常、用量和花费。",
       rangeLabel: "时间范围",
       ranges: { "24h": "24 小时", "7d": "7 天", "30d": "30 天", "90d": "90 天" },
+      tabsLabel: "看板分组",
+      tabs: { overview: "概览", usage: "用量", affinity: "好感度", cost: "花费" },
       failed: (reason: string) => `看板加载失败：${reason}`,
       freshness: {
         at: (time: string) => `数据截至 ${time}`,
@@ -793,7 +886,12 @@ export const zh = {
         shownFromRange: (time: string, range: string) => `下面仍是 ${time} 取到的 ${range}数据，每分钟会再试一次。`,
       },
       groups: {
-        usage: { title: "用量", hint: "回合和通话的走势、结果和时长，以及各位角色。" },
+        usage: { title: "用量" },
+      },
+      /** 长列表默认收起，底下一个展开键。 */
+      fold: {
+        more: (n: string) => `展开全部 ${n} 位`,
+        less: "收起",
       },
       zeroRows: {
         rest: (n: string) => `其余 ${n} 项为 0`,
@@ -806,12 +904,10 @@ export const zh = {
         /** 带齐了免限额密钥、不计入限额的通话（运行记录里通话的「用了自带密钥」，GLOSSARY.md「运行记录」）。 */
         callsExempt: (n: string) => `其中 ${n} 次不计入限额`,
         activeUsers: "活跃用户",
-        activeUsersNote: "这段时间有过回合或通话",
         /** 数字卡分两组的小标题：此刻的，和按时间范围统计的（「30 天内」）。 */
         now: "此刻",
         inRange: (range: string) => `${range}内`,
         callsInProgress: "进行中的通话",
-        callsInProgressNote: "含正在接通的；每分钟刷新",
         ownKeys: "用自带密钥的回合",
         ownKeysShare: (share: string) => `占 ${share}`,
         timeToSpeak: "到开口（中位数）",
@@ -837,7 +933,6 @@ export const zh = {
       },
       results: {
         title: "回合结果",
-        hint: "通话里的回合也在内。失败指服务出错；被拒绝多是撞上了限额；用户离开指角色说完前连接断开了。",
         result: "结果",
         turns: "回合数",
         share: "占比",
@@ -845,7 +940,6 @@ export const zh = {
       },
       callResults: {
         title: "通话结果",
-        hint: "没能接通指连上之前就断开，或语音服务在第一个回合前就出了故障；失败指接通后因故障中断；被拒绝多是撞上了限额。",
         result: "结果",
         calls: "通话数",
         share: "占比",
@@ -853,13 +947,12 @@ export const zh = {
       },
       durations: {
         title: "通话时长",
-        hint: (p50: string, p90: string) => `只算接通了的通话，从接通算起。中位数 ${p50}，九成在 ${p90} 内。`,
+        hint: (p50: string, p90: string) => `中位数 ${p50}，九成在 ${p90} 内`,
         range: "时长",
         calls: "通话数",
       },
       endReasons: {
         title: "结束原因",
-        hint: "没按挂断就关掉页面或断了网，算离开对话页。",
         reason: "原因",
         calls: "通话数",
         share: "占比",
@@ -877,17 +970,14 @@ export const zh = {
       },
       health: {
         title: "服务健康",
-        hint: "用户自带密钥的调用单独统计。判断模型和重排出错时回合照常进行，但出错会记在这里。",
         service: "服务",
         status: "状态",
         calls: "调用",
         errorRate: "出错率",
         errors: "出错类别",
         latency: "延迟 p50 / p95",
-        effort: "思考强度",
         firstToken: "首字 p50 / p95",
         cacheHitRate: "缓存命中率",
-        atEffort: (effort: string) => `思考强度${effort}`,
         usage: "计费用量",
         own: "自带密钥",
         empty: "这段时间没有服务调用。",
@@ -934,7 +1024,7 @@ export const zh = {
       },
       backups: {
         title: "备份",
-        hint: "服务器每天由 cron 把整个数据库备份一次，加密后放进私有存储桶。设置只能在服务器的 .env 里改。",
+        hint: "每天加密备份一次整个数据库。",
         /** 「备份」这一块的结论：正常只写 muted 字，异常带红点（DESIGN.md「Admin status & charts」）。 */
         states: {
           ok: "正常",
@@ -975,20 +1065,21 @@ export const zh = {
           abandoned: "没有完成（进程中途退出，或服务重启）",
         },
       },
+      /** 「用量」里的「搭话」一小节：范围内搭了几次、失败几次、被回的占比（被回的 ÷ 成功的）。 */
+      reachOuts: {
+        title: "搭话",
+        tiles: { succeeded: "成功", failed: "失败", answered: "被回了" },
+      },
       affinity: {
         title: "好感度",
-        hint: "判断模型怎样判断制作人说的话，以及冷却是不是太常发生。只算记入了对话的回合；判断失败、回合失败、被拒绝、用户离开的都不算。不落到任何一位用户。",
         tiles: {
           cooldowns: "进入冷却",
           cooledUsers: (n: string) => `涉及 ${n} 位用户`,
           outOfLine: "不该说的话",
-          outOfLineNote: "命中次数，这一回合按 −10 算",
           manipulation: "操纵",
-          manipulationNote: "命中次数，这一回合不加分",
         },
         levels: {
           title: "打分分布",
-          hint: "判断模型给每个回合的 5 级打分。级 0、级 1 减分，级 3、级 4 加分。",
           level: "打分",
           turns: "回合数",
           share: "占比",
@@ -996,22 +1087,16 @@ export const zh = {
         },
         characters: {
           title: "按角色",
-          hint: "减分占比是判成级 0、级 1 的回合占判断过的多少，从高到低排；判断过的回合不到 20 的排在最后，占比写「—」。「角色挂断」是通话里她挂断的次数，「结束对话」是文字对话里她结束对话的次数，按原因分开。",
           character: "角色",
           judged: "判断过的回合",
+          raised: "加分占比",
           lowered: "减分占比",
           cooldowns: "进入冷却",
-          outOfLine: "不该说的话",
-          manipulation: "操纵",
-          hungUp: "角色挂断",
-          ended: "结束对话",
-          endsFor: { cooldown: "冷却", out_of_line: "不该说的话", fed_up: "接连不快" },
+          sheEnded: "挂断或结束对话",
           empty: "这段时间没有判断过的回合。",
-          end: (lowered: string, cooldowns: string) => `减分 ${lowered} · 冷却 ${cooldowns}`,
-          details: (judged: string, outOfLine: string, manipulation: string, hungUp: string, ended: string) =>
-            `判断过 ${judged} 个回合 · 不该说的话 ${outOfLine} · 操纵 ${manipulation} · 角色挂断 ${hungUp} · ${ended}`,
-          endedDetails: (cooldown: string, outOfLine: string, fedUp: string) =>
-            `结束对话：冷却 ${cooldown}、不该说的话 ${outOfLine}、接连不快 ${fedUp}`,
+          end: (raised: string, lowered: string) => `加分 ${raised} · 减分 ${lowered}`,
+          details: (judged: string, cooldowns: string, sheEnded: string) =>
+            `判断过 ${judged} 个回合 · 冷却 ${cooldowns} · 挂断或结束对话 ${sheEnded}`,
         },
       },
       characters: {
@@ -1026,10 +1111,8 @@ export const zh = {
         title: "花费",
         notes: "备注",
         hint: (catalogAsOf: string | null, presetAsOf: string | null) =>
-          `部署者的 key 大约花了多少钱：按单价估算，不扣免费额度，不是账单；不同币种分开合计，不做汇率换算。${
-            catalogAsOf ? `目录价格更新于 ${catalogAsOf}。` : ""
-          }${presetAsOf ? `部分单价是预设，整理于 ${presetAsOf}，可能已经过时。` : ""}${
-            catalogAsOf || presetAsOf ? "可以在「配置」页修改。" : ""
+          `部署者的 key 按单价估算。${catalogAsOf ? `目录价格更新于 ${catalogAsOf}。` : ""}${
+            presetAsOf ? `部分单价是 ${presetAsOf} 整理的预设。` : ""
           }`,
         total: "合计（估算）",
         totalNote: (unknown: string) => `另有 ${unknown} 次调用没说用量，没有算进去`,
@@ -1052,7 +1135,7 @@ export const zh = {
         unpricedModels: (n: string) => `${n} 个模型未设单价`,
         own: {
           title: "自带密钥的用量",
-          hint: "用户自带密钥的调用由用户自己付费，这里只列用量，不换算成钱。",
+          hint: "用户自己付费，只列用量。",
           calls: "调用",
         },
         sources: {
@@ -1192,12 +1275,16 @@ export const zh = {
         voice: "语音",
         image: "生图",
         network: "网络",
+        status: "服务状态",
         limits: "限额与玩法",
+        sponsor: "赞赏",
         prices: "单价",
         read_only: "只读",
       },
       /** 标签里有覆盖没生效的项时，标签旁的琥珀色点念这一句。 */
       tabFailed: "有覆盖没有生效",
+      /** 窄屏代替标签的下拉收起时，有任何一类有覆盖没生效，框里的琥珀色点念这一句。 */
+      someTabFailed: "有分类里有覆盖没有生效",
       items: {
         chat_llm: {
           title: "扮演角色的 LLM",
@@ -1221,7 +1308,7 @@ export const zh = {
         },
         judge: {
           title: "判断模型",
-          hint: "决定每个回合要不要检索、要不要回忆剧情，好感度开着时还判断制作人的话让好感度怎样变化，也判断通话中角色的情绪。保存前 Cloudflare 做启动时的检查，Jev 问一个最小的问题。换模型时，判断阈值的覆盖都会被清掉。进行中的通话继续用接通时的模型判断情绪。",
+          hint: "决定每个回合要不要检索、要不要回忆剧情，好感度开着时还判断制作人的话让好感度怎样变化，也判断通话中角色的情绪。保存前 Cloudflare 和阿里云百炼做启动时的检查，Jev 问一个最小的问题。换模型时，判断阈值的覆盖都会被清掉。进行中的通话继续用接通时的模型判断情绪。",
         },
         judge_thresholds: {
           title: "判断模型的阈值",
@@ -1239,9 +1326,17 @@ export const zh = {
           title: "好感度和礼物",
           hint: "需要判断模型：每个回合由它判断制作人的话让好感度怎样变化。关掉时不判断、不显示，冷却也不拦人；已有的好感度原样留着，再打开接着用。保存后从下一个回合起生效，进行中的通话也是。",
         },
+        reach_outs: {
+          title: "搭话",
+          hint: "打开后，用户一阵子没来，角色会在当前对话里先说几句。用的是部署者的对话模型，花费由部署者出，自带 LLM 的用户也一样。保存后下一分钟起生效。",
+        },
         proxy: {
           title: "网络代理",
           hint: "打开的服务经过这个代理连服务商，其余的直连；用户自带的密钥和部署者的分开选。保存前把换了路线的部署者服务按新路线各连一次，有一项不通就不保存。保存后从下一次请求起生效，进行中的回合和通话也是；已经连上的语音连接不断。",
+        },
+        service_status: {
+          title: "服务状态",
+          hint: "对话列表铃铛旁边给用户看各项服务正不正常：按统计时段里用部署者 key 的调用算出错率，时段里没有调用的，后台用最小的真实请求试一下（生图不试）。一项都不显示时用户那边没有按钮。保存后立刻生效。",
         },
       },
       status: {
@@ -1267,6 +1362,7 @@ export const zh = {
         dashscope_api_key: "阿里云百炼的 key",
         region: "百炼的地域",
         account_id: "Cloudflare 账号 ID",
+        workspace_id: "百炼的业务空间 ID",
         emotion_timeout: "情绪判断的超时（秒）",
         recall: "回忆阈值",
         emotion: "情绪的最低概率",
@@ -1293,6 +1389,7 @@ export const zh = {
       /** 只在某一项里换个叫法的字段：对话模型的思考强度只管文字对话。 */
       itemFields: {
         chat_llm: { reasoning_effort: "文字的思考强度" },
+        reach_outs: { enabled: "搭话", per_day: "每位用户每天最多几次" },
         proxy: {
           enabled: "代理",
           url: "代理地址",
@@ -1310,12 +1407,24 @@ export const zh = {
           own_stt: "自带的语音识别走代理",
           own_image: "自带的生图走代理",
         },
+        service_status: {
+          window_minutes: "统计时段",
+          chat_llm: "显示「对话」（扮演角色的 LLM）",
+          memory_llm: "显示「记忆」（后台模型）",
+          tts: "显示「语音合成」",
+          stt: "显示「语音识别」",
+          judge: "显示「判断」（判断模型）",
+          embedding: "显示「检索」（向量化）",
+          rerank: "显示「重排」",
+          image: "显示「照片」（生图）",
+        },
       } as Partial<Record<string, Record<string, string>>>,
       formHints: {
         reasoning_effort: `${reasoningEffortHints.effort}选「高」及以上时，max_tokens 留空或设宽裕一些，思考也算在上限里。`,
         call_reasoning_effort: reasoningEffortHints.callEffort,
         extra_body: reasoningEffortHints.extraBody,
         account_id: "只有 Cloudflare 需要；换成 Cloudflare 时必填。",
+        workspace_id: "只有阿里云百炼需要；换成百炼时必填。地域不选就是北京。",
         emotion_timeout: "大于 0、不超过 30 秒；超时的那一段不判断情绪。",
         stt_api_key: "填写所选服务的 key，留空则沿用这家已有的 key。",
         proxy_enabled: "关闭时所有服务都直连，地址、密码和下面的选择照样留着。",
@@ -1323,10 +1432,13 @@ export const zh = {
           "http://、https://、socks5:// 或 socks5h:// 开头，写明主机和端口，比如 http://127.0.0.1:7890（生产环境的后端和宿主机共用网络，宿主机上的代理直接写 127.0.0.1）。地址里带的密码会单独加密保存。留空表示没有代理。",
         proxy_password: "代理要求认证时填写，地址里要写用户名（http://用户名@主机:端口）。留空则不改。",
         proxy_unconfigured: "这个部署没有配置这项服务，开关暂时不起作用。",
+        service_status_unconfigured: "这个部署没有配置这项服务，打开了也不显示。",
+        service_status_window_minutes: "按最近这么久里的调用算；也是空闲的服务多久试一次。",
+        service_status_image: "生图每张都要花钱，不会去试，没有调用时显示「最近没有调用」。",
         proxy_own_llm: "只有服务地址属于已知服务商（价格目录里有的）时才走代理，其余的照旧直连。",
         proxy_own_image: "只有 NovelAI 官方地址（https://image.novelai.net）走代理，中转一律直连。",
-        judge_api_key: "Jev 填 OpenRouter 等的 key，Cloudflare 填 API token；换服务时必填，留空则不改。",
-        judge_model: "Cloudflare 只能是 clef 或 clef-flash。",
+        judge_api_key: "Jev 填 OpenRouter 等的 key，Cloudflare 填 API token，阿里云百炼填这个业务空间的 key；换服务时必填，留空则不改。",
+        judge_model: "Cloudflare 只能是 clef 或 clef-flash；阿里云百炼填 decision-model-preview。",
         image_base_url: "官方格式填到域名根，OpenAI 图像格式填到 /v1。",
         probability: "0 到 1 之间。",
         exempting_llm: "打开：通话要自带 LLM 才可能不计入限额。关闭：通话的 LLM 由部署者承担，带不带都不影响计数。文字回合不看这里，用了自带 LLM 就不计入。",
@@ -1343,9 +1455,11 @@ export const zh = {
         seconds: (field: string) => `${field}需要大于 0、不超过 30。`,
         limit: (field: string) => `${field}需要是 1 以上的整数；不想限制就选「不限」。`,
         count: (field: string) => `${field}需要是 1 到 10 之间的整数。`,
+        positive: (field: string) => `${field}需要是正整数。`,
       },
       unlimited: "不限",
-      /** 开关类的值（免限额密钥、好感度和礼物）。 */
+      minutes: (n: string) => `${n} 分钟`,
+      /** 开关类的值（免限额密钥、好感度和礼物、搭话）。 */
       switchOn: "打开",
       switchOff: "关闭",
       /** 限额一项先选种类：设定上限，或者不限。不用 0 表示不限（单独限额里另有「只能用自带密钥」）。 */
@@ -1427,6 +1541,27 @@ export const zh = {
         granted: (n: number) => `已发出 ${n} 张重置卡。`,
         /** 发完的提示下面一句，「去写一条公告」链到公告页。 */
         announce: { before: "需要的话，", link: "去写一条公告", after: "告诉大家。" },
+      },
+      /** 「赞赏」标签里的那张卡（GLOSSARY.md「赞赏」）。不是 .env 里的配置，没有「恢复成 .env 的值」，只有「清除」。 */
+      sponsor: {
+        title: "赞赏",
+        hint: "用户在设置里「关于」上面看到「赞赏」，点开是这张收款码。",
+        loading: "正在读取…",
+        switch: "在设置里显示",
+        noImage: "还没上传收款码，用户暂时看不到「赞赏」。",
+        preview: "收款码",
+        upload: "上传收款码",
+        replace: "换一张",
+        uploading: "正在上传…",
+        formats: (mb: number) => `PNG、JPEG 或 WebP，不超过 ${mb} MB。`,
+        notAPicture: "只能上传 PNG、JPEG 或 WebP 图片。",
+        tooLarge: (mb: number) => `图片不能超过 ${mb} MB。`,
+        clear: "清除",
+        dialog: {
+          title: "清除赞赏？",
+          description: "开关会关掉，收款码会删除，用户不再看到「赞赏」。",
+          confirm: "清除",
+        },
       },
     },
     prices: {
@@ -1527,6 +1662,7 @@ export const zh = {
       columns: { body: "正文", status: "状态", publishedAt: "发布时间", updatedAt: "最后修改" },
       status: { draft: "草稿", published: "已发布" },
       notPublished: "未发布",
+      pinned: "置顶",
       empty: "还没有公告",
       emptyHint: "点「写公告」写第一条。",
       loading: "正在读取…",
@@ -1552,11 +1688,15 @@ export const zh = {
         publish: "发布",
         save: "保存",
         withdraw: "撤回",
+        pin: "置顶",
+        unpin: "取消置顶",
       },
       notices: {
         saved: "已保存。",
         published: "已发布，用户现在能看到它。",
         withdrawn: "已撤回成草稿，用户看不到它了。",
+        pinned: "已置顶。",
+        unpinned: "已取消置顶。",
       },
       deleteSection: {
         title: "删除这条公告",
@@ -1690,14 +1830,15 @@ export const zh = {
         title: "我们保存哪些数据",
         items: [
           { term: "登录方式", text: "你用来登录的 Google 或 GitHub 账号的编号、显示名和邮箱。我们拿不到你的密码。" },
-          { term: "对话", text: "你对角色说的话（打字的，以及通话时语音识别出的文字）和角色的回复，你送她礼物后留在对话里的送礼记录，以及「她挂断了电话」这样的记录（送礼记录和这类记录都不会被提炼成记忆）。她发给你的照片也存在对话里，只有你能看，随那段对话一起删除，也会进备份。每通接通了的通话，会在所在的对话下记下开始时间和时长，用于统计，不含通话内容，随那段对话一起删除。通话的录音不保存。开了新对话以后，之前的对话可以在对话页的「历史对话」里逐段删除，删除后立即从线上彻底删除（当前对话不能删除，开了新对话后它就能删了）；她在那段对话里记下的记忆不受影响，可以在设置的「记忆」里另外删除；已经做好的备份里的副本，最多 30 天后随备份过期清除。" },
+          { term: "对话", text: "你对角色说的话（打字的，以及通话时语音识别出的文字）和角色的回复，你送她礼物后留在对话里的送礼记录，以及「她挂断了电话」这样的记录（送礼记录和这类记录都不会被提炼成记忆）。她发给你的照片也存在对话里，只有你能看，随那段对话一起删除，也会进备份。她的搭话也存在对话里，随那段对话一起删除，也会进备份和你导出的数据包。每通接通了的通话，会在所在的对话下记下开始时间和时长，用于统计，不含通话内容，随那段对话一起删除。通话的录音不保存。开了新对话以后，之前的对话可以在对话页的「历史对话」里逐段删除，删除后立即从线上彻底删除（当前对话不能删除，开了新对话后它就能删了）；她在那段对话里记下的记忆不受影响，可以在设置的「记忆」里另外删除；已经做好的备份里的副本，最多 30 天后随备份过期清除。" },
           { term: "记忆", text: "角色从对话中记下的关于你的事，所有角色共用，你可以在设置的「记忆」里查看和删除。" },
           { term: "制作人档案", text: "你设置的称呼、性别、时区和生日（只有月和日）。" },
           { term: "好感度", text: "每位角色对你各有一份好感度，以及有没有在冷却、什么时候解除。你只看得到档位，看不到数值。它不能单独删除，删除记忆也不影响它；删除全部数据时一起删除。" },
           { term: "礼物", text: "你背包里的礼物、重置卡，还有抽奖次数。删除全部数据时一起删除。" },
+          { term: "搭话", text: "你在设置里的「搭话」开关，以及你看过哪些搭话。" },
           { term: "自带密钥", text: "如果你填了自己的 API key，它只保存在你的浏览器里，我们不保存；每次回合或通话时随请求发给服务器，只在处理期间留在内存里，不写入数据库、日志或备份。" },
           { term: "登录状态和限额的计数", text: "让你在各台设备上保持登录的状态，以及最近 24 小时内你发起回合和通话的次数、收到照片的张数（用于限额）。" },
-          { term: "运行记录", text: "每个回合和每次通话是和哪位角色、什么时候、结果如何（成功、失败、被拒绝等）、通话的时长和结束原因（包括角色挂断），判断模型对每个回合的判断结果（这句话让角色开心、不舒服还是没有影响，有没有判为不该说的话或操纵，有没有因此进入冷却），以及其中用了哪些服务和模型、是否用了自带密钥、用量（例如 token 数）、有没有出错和花了多久；角色发照片时，还记下描述照片的 tag 里有几个因为越界被剥掉、各属于哪一类（不记 tag 本身）。不含你说的话和角色的回复，不记密钥，也不记自带 LLM 的服务地址和模型名。满 90 天自动删除。" },
+          { term: "运行记录", text: "每个回合、每次通话和每次搭话是和哪位角色、什么时候、结果如何（成功、失败、被拒绝等）、通话的时长和结束原因（包括角色挂断），判断模型对每个回合的判断结果（这句话让角色开心、不舒服还是没有影响，有没有判为不该说的话或操纵，有没有因此进入冷却），以及其中用了哪些服务和模型、是否用了自带密钥、用量（例如 token 数）、有没有出错和花了多久；角色发照片时，还记下描述照片的 tag 里有几个因为越界被剥掉、各属于哪一类（不记 tag 本身）；搭话还记下你有没有回。不含你说的话和角色的回复，不记密钥，也不记自带 LLM 的服务地址和模型名。满 90 天自动删除。" },
           { term: "备份", text: "以上数据每天加密备份一次，存放在部署者的私有云存储里，每份保留 30 天，用于服务器出故障时恢复。" },
         ],
         notes: [],
@@ -1706,7 +1847,7 @@ export const zh = {
         title: "这些数据会交给哪些第三方处理",
         items: [
           // 不论免限额密钥是哪几项都要对，不点名哪几项。
-          { term: "语言模型服务", text: "扮演角色、提炼记忆和给对话起标题时，对话内容和相关记忆会发给语言模型服务：你填了自己的 LLM，就发给你选择的服务（另配了后台模型的，提炼记忆和起标题时发给它）；没填，就发给部署者配置的服务。" },
+          { term: "语言模型服务", text: "扮演角色、提炼记忆和给对话起标题时，对话内容和相关记忆会发给语言模型服务：你填了自己的 LLM，就发给你选择的服务（另配了后台模型的，提炼记忆和起标题时发给它）；没填，就发给部署者配置的服务。开着搭话时，即使你不在线，服务器也会把这段对话和相关记忆发给部署者配置的服务，生成她先说的话；填了自己的 LLM 也一样。" },
           { term: "判断模型", text: "每个回合，你说的话连同最近几个回合的对话会发给部署者配置的判断模型（TypeSafe 的 Jev，经 OpenRouter 等转发；或 Cloudflare 的 Clef），用来判断要不要回忆剧情或查资料、你是不是在要照片，以及这句话让角色对你的好感度怎样变化；通话中角色的回复也会一段段发过去，判断她的情绪。判断模型始终由部署者提供，填了自带密钥也不改变这一点。" },
           { term: "语音服务", text: "通话时，你的声音会发给部署者选择的语音识别服务（Soniox 或阿里云百炼）识别成文字，角色的回复会发给 Fish Audio 合成语音。阿里云百炼不会用你的声音训练模型，但会保存一段时间，存放在中国内地或新加坡，取决于部署者的账号。" },
           { term: "向量化和重排服务", text: "为了在对话中找到相关的剧情和记忆，你说的话和记忆会发给部署者选择的向量化服务（硅基流动或 Google Gemini）和重排服务（硅基流动）。" },
@@ -1731,6 +1872,7 @@ export const zh = {
         items: [],
         notes: [
           "在设置页点「删除我的全部数据」，再确认一次，你的记忆、对话、制作人档案、登录方式、登录状态和限额的计数都会立刻从线上彻底删除（不是标记删除），所有设备都会退出登录；已经做好的备份里的副本，最多 30 天后随备份过期清除。这个浏览器里的自带密钥会在你登出或删除账号时一并清除，其他设备上的需要你在那几台设备上自己删除。之后再用同一个 Google 或 GitHub 身份登录，会是一位全新的用户。",
+          "导出的数据包在你自己手里，删除数据不会删到它。",
           "你的运行记录不会随之删除，但不再关联到你，也无法再对应回你，满 90 天后照常删除；这样全站的统计数字不会因为有人离开而变化。管理者也可以应你的要求代你删除，效果完全一样。",
           "被封禁的用户被删除后，我们会保留他用过的登录方式的编号经过加密哈希后的结果（不含名字和邮箱），用来阻止他用同一身份再次登录；这份名单不会过期。",
           "已经发给第三方服务的内容，按各服务自己的政策保存和删除。",
@@ -1741,7 +1883,7 @@ export const zh = {
       title: "联系部署者",
       text: (contact: string) => `对你的数据有疑问，或者想请管理者代你删除，请联系：${contact}`,
     },
-    lastUpdated: "最后更新：2026 年 10 月 17 日",
+    lastUpdated: "最后更新：2026 年 10 月 19 日",
   },
   terms: {
     title: "使用条款",

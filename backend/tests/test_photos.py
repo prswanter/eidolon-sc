@@ -21,7 +21,7 @@ import pytest
 from PIL import Image
 
 from eidolon.config import ImageSettings, Settings
-from eidolon.photos import CAN_SEND, NOT_NOW
+from eidolon.photos import CAN_SEND, CANNOT_SEND, NOT_NOW
 from tests.conftest import ClientFactory
 from tests.fakes import (
     FAKE_JUDGE,
@@ -202,7 +202,7 @@ action: sitting, smile
 
 
 @pytest.mark.parametrize("deployment", ["no judge model", "no image generation", "no photo tags"])
-async def test_a_turn_that_could_have_no_photo_is_as_before(
+async def test_a_turn_that_could_have_no_photo_tells_her_she_cannot_send_one(
     make_client: ClientFactory, settings: Settings, deployment: str
 ):
     character = "kogane" if deployment == "no photo tags" else "mano"
@@ -221,7 +221,7 @@ async def test_a_turn_that_could_have_no_photo_is_as_before(
     events = await send_turn(client, conversation, "发张自拍给我看看")
 
     assert clients.judge.photo_asked == []
-    assert "# 照片" not in context_of(llm.prompts[0])
+    assert CANNOT_SEND in context_of(llm.prompts[0])
     assert photo_events(events) == []
     assert image.requests == []
     assert events[-1]["message"]["ja"] == "はい、どうぞ"

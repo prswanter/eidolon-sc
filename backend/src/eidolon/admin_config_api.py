@@ -13,10 +13,12 @@ from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
 from eidolon.config import (
     MAX_IMAGE_CONCURRENCY,
+    BailianRegion,
     FishAudioModel,
     ImageFormat,
     JudgeProvider,
     LLMProtocol,
+    checked_base_url,
     SttProvider,
 )
 from eidolon.live_config import (
@@ -28,8 +30,10 @@ from eidolon.live_config import (
     LIMITS,
     MEMORY_LLM,
     PROXY,
+    REACH_OUTS,
     READ_ONLY,
     RERANK,
+    SERVICE_STATUS,
     STT,
     STT_KEY_FIELDS,
     TTS,
@@ -49,6 +53,10 @@ def _trimmed(value: str) -> str:
     return value
 
 
+def _trimmed_if_given(value: str | None) -> str | None:
+    return None if value is None else _trimmed(value)
+
+
 class LLMInput(BaseModel):
     """A model slot as the admin saves it; without `api_key`, its key stays as it is."""
 
@@ -61,7 +69,19 @@ class LLMInput(BaseModel):
     extra_body: Any = None
     api_key: str | None = ApiKey
 
-    _trim = field_validator("base_url", "model")(_trimmed)
+    _trim = field_validator("model")(_trimmed)
+    _base_url = field_validator("base_url")(checked_base_url)
+
+
+class LLMListInput(BaseModel):
+    """Where a model slot's service is, for it to list the models it offers the key;
+    without `api_key`, the key in effect now, at the address it is in effect for."""
+
+    protocol: LLMProtocol
+    base_url: str = Field(min_length=1, max_length=500)
+    api_key: str | None = ApiKey
+
+    _base_url = field_validator("base_url")(checked_base_url)
 
 
 class ChatLLMInput(LLMInput):
@@ -100,10 +120,13 @@ class JudgeInput(BaseModel):
     provider: JudgeProvider
     model: str = Field(min_length=1, max_length=200)
     account_id: str | None = Field(None, min_length=1, max_length=100)
+    workspace_id: str | None = Field(None, min_length=1, max_length=100)
+    region: BailianRegion | None = None
     emotion_timeout: float = Field(gt=0, le=30)
     api_key: str | None = ApiKey
 
     _trim = field_validator("model")(_trimmed)
+    _trim_workspace = field_validator("workspace_id")(_trimmed_if_given)
 
 
 class JudgeThresholdsInput(BaseModel):
@@ -141,6 +164,14 @@ class AffinityInput(BaseModel):
     enabled: Any
 
 
+class ReachOutsInput(BaseModel):
+    """Whether characters reach out to users, true or false, and how many times a day each
+    user at most, a whole number from 1 up; checked by the live configuration."""
+
+    enabled: Any
+    per_day: Any
+
+
 class ProxyInput(BaseModel):
     """The proxy as the admin saves it: the switch, the address (a password typed into it
     is kept apart, as a key is; empty for none), and a switch for each of the deployer's
@@ -164,6 +195,21 @@ class ProxyInput(BaseModel):
     own_image: StrictBool
 
 
+class ServiceStatusInput(BaseModel):
+    """Which services users are shown the status of, a switch for each, and over how many
+    minutes, checked by the live configuration, which says what is wrong in so many words."""
+
+    window_minutes: Any
+    chat_llm: StrictBool
+    memory_llm: StrictBool
+    tts: StrictBool
+    stt: StrictBool
+    judge: StrictBool
+    embedding: StrictBool
+    rerank: StrictBool
+    image: StrictBool
+
+
 INPUTS: dict[str, type[BaseModel]] = {
     CHAT_LLM: ChatLLMInput,
     MEMORY_LLM: LLMInput,
@@ -175,17 +221,20 @@ INPUTS: dict[str, type[BaseModel]] = {
     RERANK: RerankInput,
     LIMITS: LimitsInput,
     AFFINITY: AffinityInput,
+    REACH_OUTS: ReachOutsInput,
     PROXY: ProxyInput,
+    SERVICE_STATUS: ServiceStatusInput,
 }
 
 
 def _change(item: str, body: BaseModel) -> dict[str, Any]:
     """What the input changes of the item: every field given (a model slot's max_tokens
-    may be None, its protocol's default), a key, an account id and a proxy's password
-    only if given."""
+    may be None, its protocol's default), a key, the judge model's account, workspace
+    and region and a proxy's password only if given."""
     change = body.model_dump()
-    if change.get("account_id", "") is None:
-        del change["account_id"]
+    for field in ("account_id", "workspace_id", "region"):
+        if change.get(field, "") is None:
+            del change[field]
     if change.get("password", "") is None:
         del change["password"]
     if key := change.pop("api_key", None):
@@ -226,6 +275,20 @@ def add_admin_config_routes(app: FastAPI, backend: Backend) -> None:
         except ConfigRejected as e:
             raise HTTPException(422, f"试调失败，没有保存：{e}") from None
         return config.describe()
+
+    @app.post("/api/admin/config/{item}/models")
+    async def list_models(item: str, body: LLMListInput, _: Admin) -> dict:
+        """The models the service offers the key, as it lists them, for the model slot
+        `item` to pick one from; 422 saying why not."""
+        if item not in (CHAT_LLM, MEMORY_LLM):
+            raise HTTPException(404, "这一项不是模型")
+        try:
+            models = await config.list_models(
+                item, body.protocol, body.base_url, _trimmed_if_given(body.api_key)
+            )
+        except ConfigRejected as e:
+            raise HTTPException(422, f"获取模型失败：{e}") from None
+        return {"models": models}
 
     @app.delete("/api/admin/config/{item}")
     async def restore(item: str, _: Admin) -> dict:

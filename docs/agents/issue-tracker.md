@@ -10,6 +10,13 @@ Issues and specs for this repo live as markdown files in `.scratch/`.
 - Triage state is recorded as a `Status:` line near the top of each issue file (see `triage-labels.md` for the role strings)
 - Comments and conversation history append to the bottom of the file under a `## Comments` heading
 
+## Closing an implementation ticket
+
+- Tick the acceptance criteria that are met and set `Status: done`.
+- Under `## Comments`, add `### 实现说明（票 NN）`: the interfaces and modules changed, and any judgement calls made along the way.
+- Anything a later ticket must pick up goes in *that* ticket's `## Comments` as `### 票 NN 交接`.
+- Commit these edits with the ticket's own commit.
+
 ## When a skill says "publish to the issue tracker"
 
 Create a new file under `.scratch/<feature-slug>/` (creating the directory if needed).

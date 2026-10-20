@@ -88,6 +88,7 @@ from pathlib import Path
 
 from eidolon.clock import utc_now
 from eidolon.config import (
+    JUDGE_PROVIDERS,
     Settings,
     UsageLimits,
     characters_path_from_env,
@@ -1159,7 +1160,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     judge.add_argument(
         "--provider",
-        choices=["jev", "cloudflare"],
+        choices=JUDGE_PROVIDERS,
         help="判断模型的服务商（默认取环境变量 JUDGE_PROVIDER），方便同一份配置轮流跑",
     )
     judge.add_argument(

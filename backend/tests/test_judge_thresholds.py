@@ -39,6 +39,9 @@ ODD = JudgeThresholds(
         ("Cloudflare/Clef-Flash", "clef-flash"),
         ("clef", "clef"),
         ("cloudflare/clef-2", None),  # a new Clef is not judged by the old one's thresholds
+        ("decision-model-preview", "decision-model"),
+        ("decision-model", "decision-model"),  # out of preview, judged alike until shown not to
+        ("decision-modeller", None),
     ],
 )
 def test_a_models_name_falls_in_its_group(model: str, family: str | None):

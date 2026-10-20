@@ -14,7 +14,10 @@ generation go through the proxy only to a known provider's host (`own_transport`
 from collections.abc import Callable
 from typing import Any, Literal
 
+import httpcore
 import httpx
+from httpcore._async.http_proxy import AsyncTunnelHTTPConnection
+from httpcore._synchronization import AsyncShieldCancellation
 from socksio import ProtocolError as SocksProtocolError
 from websockets.asyncio.client import ClientConnection
 
@@ -138,13 +141,45 @@ def _transport(proxy: str | None) -> httpx.AsyncHTTPTransport:
 
 class _Transport(httpx.AsyncHTTPTransport):
     """httpx's own, with a SOCKS proxy's reply it cannot read raised as the proxy's error,
-    as httpx raises any other's, not as socksio's."""
+    as httpx raises any other's, not as socksio's; and an HTTP proxy's tunnels that fail,
+    or are given up on, before TLS through them is set up closed (`_Tunnel`)."""
+
+    def __init__(self, proxy: str | None) -> None:
+        super().__init__(proxy=proxy)
+        if type(self._pool) is httpcore.AsyncHTTPProxy:
+            self._pool.__class__ = _HTTPProxy
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         try:
             return await super().handle_async_request(request)
         except SocksProtocolError as e:
             raise httpx.ProxyError(f"SOCKS 代理的回复无法解析：{e}", request=request) from e
+
+
+class _HTTPProxy(httpcore.AsyncHTTPProxy):
+    """httpcore's, its tunnels `_Tunnel`s."""
+
+    def create_connection(self, origin: httpcore.Origin) -> httpcore.AsyncConnectionInterface:
+        connection = super().create_connection(origin)
+        if type(connection) is AsyncTunnelHTTPConnection:
+            connection.__class__ = _Tunnel
+        return connection
+
+
+class _Tunnel(AsyncTunnelHTTPConnection):
+    """httpcore's tunnel through an HTTP proxy, closed when it fails, timing out or given
+    up on, after the proxy answered CONNECT but before TLS through it is set up. httpcore
+    (1.0.9) leaves it open then, its slot in the pool taken for good: once a client's every
+    slot is, each of its requests fails waiting for one (PoolTimeout)."""
+
+    async def handle_async_request(self, request: httpcore.Request) -> httpcore.Response:
+        try:
+            return await super().handle_async_request(request)
+        except BaseException:
+            if not self._connected:
+                with AsyncShieldCancellation():
+                    await self._connection.aclose()
+            raise
 
 
 class Unreachable(Exception):

@@ -16,7 +16,7 @@ from datetime import timedelta
 import pytest
 
 from eidolon.config import Settings, UsageLimits
-from eidolon.photos import USED_UP
+from eidolon.photos import CANNOT_SEND, USED_UP
 from eidolon.usage import UsageKind, UsageLimiter
 from tests.conftest import ClientFactory
 from tests.fakes import (
@@ -247,9 +247,9 @@ async def test_an_admin_may_set_a_users_own_photos_an_hour(
     assert shown["limits"]["photos_per_hour"] == own
     assert (shown["limits"]["turns_per_hour"], shown["limits"]["calls_per_hour"]) == (None, None)
     assert [len(photo_events(events)) for events in turns] == [1] * photos + [0] * (3 - photos)
-    if own == 0:  # as if there were no photos: she does not know she could send one
+    if own == 0:  # as if there were no photos: she knows she cannot send one
         assert clients.judge.photo_asked == []
-        assert "# 照片" not in context_of(llm.prompts[0])
+        assert CANNOT_SEND in context_of(llm.prompts[0])
         assert [used_up(events) for events in turns] == [[], [], []]
     else:
         assert [len(used_up(events)) for events in turns] == [0] * photos + [1] * (3 - photos)

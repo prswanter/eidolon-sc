@@ -1,9 +1,9 @@
-"""Activity records (GLOSSARY.md「运行记录」): one for each turn and each call, saying how
-it turned out, and one for each call to an outside service, saying which service, whose
-key, whether it failed and how, how long it took and what it was billed for; an LLM's,
-also how much of its input hit the provider's prompt cache, how soon its first word came
-and the reasoning effort it was asked for. They hold nothing anyone said. Only the admin
-console reads them: its dashboard (`dashboard`), and its users page, for each user's
+"""Activity records (GLOSSARY.md「运行记录」): one for each turn, each call and each
+reach-out (GLOSSARY.md「搭话」), saying how it turned out, and one for each call to an
+outside service, saying which service, whose key, whether it failed and how, how long it
+took and what it was billed for; an LLM's, also how much of its input hit the provider's
+prompt cache, how soon its first word came and the reasoning effort it was asked for. They
+hold nothing anyone said. Only the admin console reads them: its dashboard (`dashboard`), and its users page, for each user's
 recent usage (`admin_users_api`).
 
 A turn's record is open while the turn runs (`ActivityLog.begin`, then `current`), and the
@@ -17,6 +17,11 @@ A call's record is told its outcome as the call's use of the limit is (`call_out
 with how long it lasted and why it ended. The turns taken in it each have a record of
 their own under the call's (`Recording.turn`), written with it; its speech recognition,
 synthesis and emotion judging are recorded under the call (`Recording.add`), not a turn.
+
+A reach-out's record says whether the user answered it: had a turn, or a call that connected,
+in its conversation after it and before the next. The store marks it so as it records the
+turn or keeps the call (`Store.add_turn`, `Store.keep_call`), by the record its reach-out
+names; or as that is kept, should they have been in touch since (`Store.reach_out_recorded_as`).
 
 A photo she sends (`photos`) is generated in the context of the turn it was begun in, and
 often comes out after the turn is over: its request to the image service is recorded under
@@ -61,11 +66,14 @@ from eidolon.billing import Billing, billing
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import (
+    BailianJudgeSettings,
     CloudflareJudgeSettings,
     ImageSettings,
     JudgeSettings,
     LLMSettings,
+    SERVICE_NAMES,
     ReasoningEffort,
+    ServiceName,
     Settings,
 )
 from eidolon.database import connect
@@ -83,24 +91,18 @@ from eidolon.store import Message
 
 log = logging.getLogger(__name__)
 
-ServiceName = Literal[
-    "chat_llm", "memory_llm", "tts", "stt", "judge", "embedding", "rerank", "image"
-]
-"""The outside services: the LLM playing the characters and the one writing down memories,
-speech synthesis and recognition, the judge model, embedding, reranking and image
-generation."""
-SERVICES: tuple[ServiceName, ...] = (
-    "chat_llm", "memory_llm", "tts", "stt", "judge", "embedding", "rerank", "image"
-)
+SERVICES: tuple[ServiceName, ...] = SERVICE_NAMES
 LLM_SERVICES: tuple[ServiceName, ...] = ("chat_llm", "memory_llm")
 """The LLMs among them (`llm_origin`): a user's own is recorded as `OWN`, and each call
 says how soon its first word came and at which reasoning effort."""
 
-RecordKind = Literal["turn", "call"]
+RecordKind = Literal["turn", "call", "reach_out"]
+"""A reach-out is neither a turn nor a call, nor counted as one anywhere; it is always on the
+deployer's keys."""
 Result = Literal["success", "failed", "rejected", "left", "not_connected"]
 """How a turn or call turned out (GLOSSARY.md「回合」「接通」): a turn succeeded, failed on
 a service, was rejected (over the limit, or its input), or the user left before it was
-done; a call also may never have connected."""
+done; a call also may never have connected. A reach-out succeeds or fails."""
 RESULTS: tuple[Result, ...] = ("success", "failed", "rejected", "left", "not_connected")
 
 ErrorKind = Literal[
@@ -114,6 +116,10 @@ TAKEN = "result != 'rejected'"
 """Which records, in SQL over `activity_records`, are of a turn or call the user took: all
 but those rejected, which were refused rather than taken. The admin's users page counts
 these, and sorts the users by them (`Store.find_users`)."""
+
+TURNS_AND_CALLS = "kind IN ('turn', 'call')"
+"""Which records, in SQL over `activity_records`, are of turns and calls: not of reach-outs,
+which the user did not take."""
 
 JUDGEMENT_COLUMNS = ("affinity_level", "out_of_line", "manipulation", "cooled")
 """What a turn's record keeps of how the judge model judged it, as its columns are named."""
@@ -132,6 +138,10 @@ _SCHEMA = """
 -- whether out of line, whether it tried to dictate her affinity, and whether the turn began
 -- a cooldown; all NULL for a turn not judged, or not recorded. `ended_conversation` is why
 -- she ended the conversation after a typed turn (`affinity.EndsFor`), NULL if she did not.
+-- `answered` is whether a reach-out was answered (GLOSSARY.md「搭话」): the user had a turn,
+-- or a call connected, in its conversation after it and before the next; the store marks it
+-- so, by the record its reach-out keeps (`Store.add_turn`, `Store.keep_call`,
+-- `Store.reach_out_recorded_as`). 0 for others.
 CREATE TABLE IF NOT EXISTS activity_records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     kind TEXT NOT NULL,
@@ -149,7 +159,8 @@ CREATE TABLE IF NOT EXISTS activity_records (
     out_of_line INTEGER,
     manipulation INTEGER,
     cooled INTEGER,
-    ended_conversation TEXT
+    ended_conversation TEXT,
+    answered INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS activity_records_by_time ON activity_records(started_at);
 CREATE INDEX IF NOT EXISTS activity_records_by_user ON activity_records(user_id, started_at);
@@ -248,8 +259,9 @@ CALL_END_REASONS: tuple[CallEndReason, ...] = (
 
 @dataclass(frozen=True)
 class RecordRow:
-    """An activity record as the dashboard reads it: whose (any stable id; the same for
-    one user's records, deleted or not), which character, when, how it turned out."""
+    """An activity record as read back one by one (`ActivityLog.since`,
+    `ActivityLog.of_user`): whose (any stable id; the same for one user's records, deleted or
+    not), which character, when, how it turned out."""
 
     kind: RecordKind
     who: str | None
@@ -277,6 +289,9 @@ class RecordRow:
     """Whether a turn began a cooldown."""
     ended_conversation: EndsFor | None = None
     """Why she ended the conversation after a typed turn; None if she did not."""
+    answered: bool = False
+    """Whether a reach-out was answered: the user had a turn, or a call connected, in its
+    conversation after it and before the next."""
 
     @property
     def own_keys(self) -> bool:
@@ -287,7 +302,7 @@ class RecordRow:
 
 @dataclass(frozen=True)
 class CallRow:
-    """A service call as the dashboard reads it."""
+    """A service call as read back one by one (`ActivityLog.since`)."""
 
     service: ServiceName
     provider: str
@@ -309,6 +324,107 @@ class CallRow:
     stripped: dict[Crossing, int] | None = None
     """For image generation, how many tags were stripped from her photo tag, by which part
     of the line each crossed; None if none were."""
+
+
+PERCENTILES = (50, 90, 95)
+"""The percentiles a `Spread` has."""
+
+
+@dataclass(frozen=True)
+class Spread:
+    """How many of some values were known, and their nearest-rank `PERCENTILES`; none of
+    none."""
+
+    known: int
+    percentiles: dict[int, float]
+
+
+@dataclass(frozen=True)
+class RecordGroup:
+    """Activity records alike in all the dashboard counts them by, and how many there are."""
+
+    kind: RecordKind
+    character_id: str
+    result: Result
+    own_keys: bool
+    """`RecordRow.own_keys`: for a turn, its own LLM; for a call, its being exempt."""
+    in_call: bool
+    end_reason: CallEndReason | None
+    judged: Judged | None
+    cooled: bool
+    ended_conversation: bool
+    """Whether she ended the conversation after a typed turn, whatever for."""
+    answered: bool
+    count: int
+
+
+@dataclass(frozen=True)
+class CallGroup:
+    """Service calls alike in all the dashboard counts them by, summed up: made in one
+    stretch of its range, to one service, provider and model on one key, failed one way or
+    not, billed in one unit, saying or not what for, with the same tags stripped."""
+
+    stretch: int
+    """Which stretch of the range they were made in, as an index into its starts."""
+    service: ServiceName
+    provider: str
+    model: str
+    own_key: bool
+    error: ErrorKind | None
+    usage_unit: str | None
+    input_told: bool
+    """Whether the service said what their input was billed for."""
+    output_told: bool
+    """Whether it said what their output was."""
+    stripped: dict[Crossing, int] | None
+    """For image generation, how many tags were stripped from each one's photo tag, by
+    which part of the line each crossed; None if none were."""
+    calls: int
+    usage_input: float | None
+    """What their input was billed for, summed; None where none said, as the next two."""
+    usage_output: float | None
+    usage_cached: float | None
+
+    @property
+    def billed(self) -> bool:
+        """Whether the service said what they were billed for."""
+        return self.usage_unit is not None and (self.input_told or self.output_told)
+
+
+@dataclass(frozen=True)
+class Taken:
+    """How many turns and calls were taken in a stretch of the dashboard's range, and by
+    how many users."""
+
+    turns: int
+    calls: int
+    users: int
+
+
+@dataclass(frozen=True)
+class Tally:
+    """The activity records and service calls after a moment, summed up for the dashboard
+    (`ActivityLog.tally`)."""
+
+    records: list[RecordGroup]
+    calls: list[CallGroup]
+    """In the order their first calls were made."""
+    users: int
+    """How many users took any turn or call."""
+    cooled_users: int
+    """How many of them a judged turn began a cooldown for."""
+    stretches: list[Taken]
+    """What was taken in each stretch of the range."""
+    latency: dict[tuple[ServiceName, bool], Spread]
+    """How long each service took, on the deployer's keys and on users' own apart."""
+    first_token: dict[tuple[ServiceName, bool], Spread]
+    """How soon each LLM's first word came, so too."""
+    time_to_speak: Spread
+    """How soon the character began to speak, in the turns where she did."""
+    lasted: Spread
+    """How long the calls that connected lasted, in seconds."""
+    lasted_within: list[int]
+    """How many of them lasted within each of the bounds asked for."""
 
 
 _current: ContextVar["Recording | None"] = ContextVar("activity_record", default=None)
@@ -436,7 +552,13 @@ class ActivityLog:
             _add_llm_columns(self._db)
             _add_stripped_tags_column(self._db)
             _add_judgement_columns(self._db)
+            _add_answered_column(self._db)
             _forget_own_llms(self._db)
+        # Summing up a long range takes a while: on a connection of its own, records are
+        # written meanwhile, not kept waiting.
+        self._reader = connect(path)
+        self._reader.execute("PRAGMA query_only = ON")
+        self._reading = threading.Lock()
         self._clock = clock
 
     def now(self) -> datetime:
@@ -490,7 +612,7 @@ class ActivityLog:
             records = self._db.execute(
                 "SELECT kind, COALESCE(user_id, anonymous_id), character_id, started_at, result,"
                 " own_keys, time_to_speak_ms, duration_s, end_reason, call_id IS NOT NULL,"
-                f" {', '.join(JUDGEMENT_COLUMNS)}, ended_conversation"
+                f" {', '.join(JUDGEMENT_COLUMNS)}, ended_conversation, answered"
                 " FROM activity_records WHERE started_at > ? ORDER BY started_at",
                 (at,),
             ).fetchall()
@@ -506,10 +628,11 @@ class ActivityLog:
                     kind, who, character, _time(started), result,
                     *_reading_own_keys(kind, own), speak, duration, reason, bool(in_call),
                     *_reading_judgement(level, out_of_line, manipulation, cooled), ended,
+                    bool(answered),
                 )
                 for (
                     kind, who, character, started, result, own, speak, duration, reason, in_call,
-                    level, out_of_line, manipulation, cooled, ended,
+                    level, out_of_line, manipulation, cooled, ended, answered,
                 ) in records
             ],
             [
@@ -523,14 +646,61 @@ class ActivityLog:
             ],
         )
 
+    def tally(
+        self,
+        moment: datetime,
+        starts: Sequence[datetime],
+        durations: Sequence[tuple[int, int | None]],
+    ) -> Tally:
+        """The records and service calls after `moment`, summed up in the database rather
+        than read one by one, for there may be millions: their trend in stretches beginning
+        at `starts` (the first taking in whatever comes before it), and how many calls lasted
+        within each of `durations`, from so many seconds to before so many (None: however
+        long)."""
+        at = moment.timestamp()
+        with self._reading:
+            db = self._reader
+            db.execute("BEGIN")  # all of it as of one moment
+            try:
+                return _tally(db, at, starts, durations)
+            finally:
+                db.rollback()
+
+    def billed_models(self, moment: datetime) -> dict[tuple[str, str, str], ServiceName]:
+        """What the deployer's service calls after `moment` were billed for, by provider,
+        model and unit, each with the service its latest call was to."""
+        with self._reading:
+            rows = self._reader.execute(
+                # The bare `service` is of the row whose `at` is the greatest.
+                "SELECT provider, model, usage_unit, service, MAX(at) FROM service_calls"
+                " WHERE at > ? AND own_key = 0 AND usage_unit IS NOT NULL"
+                " AND (usage_input IS NOT NULL OR usage_output IS NOT NULL)"
+                " GROUP BY provider, model, usage_unit",
+                (moment.timestamp(),),
+            ).fetchall()
+        return {(provider, model, unit): service for provider, model, unit, service, _ in rows}
+
+    def deployer_calls_since(self, moment: datetime) -> dict[ServiceName, tuple[int, int]]:
+        """How many calls to each service after `moment` were on the deployer's keys, and
+        how many of them failed; only those with any."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT service, COUNT(*), SUM(error IS NOT NULL) FROM service_calls"
+                " WHERE at > ? AND own_key = 0 GROUP BY service",
+                (moment.timestamp(),),
+            ).fetchall()
+        return {service: (calls, failed) for service, calls, failed in rows}
+
     def of_user(self, user_id: str, moment: datetime) -> list[RecordRow]:
-        """The user's records of turns and calls after `moment`, oldest first; only how
-        each turned out and on whose keys are of use to the admin's users page."""
+        """The user's records of turns and calls after `moment`, oldest first, not of
+        reach-outs; only how each turned out and on whose keys are of use to the admin's users
+        page."""
         with self._lock:
             rows = self._db.execute(
                 "SELECT kind, character_id, started_at, result, own_keys,"
                 " call_id IS NOT NULL FROM activity_records"
-                " WHERE user_id = ? AND started_at > ? ORDER BY started_at",
+                f" WHERE user_id = ? AND started_at > ? AND {TURNS_AND_CALLS}"
+                " ORDER BY started_at",
                 (user_id, moment.timestamp()),
             ).fetchall()
         return [
@@ -538,6 +708,17 @@ class ActivityLog:
                       *_reading_own_keys(kind, own), None, in_call=bool(in_call))
             for kind, character, started, result, own, in_call in rows
         ]
+
+    def reached_out_since(self, user_id: str, moment: datetime) -> int:
+        """How many times characters reached out to the user since `moment`, as of when each
+        began; only those recorded count, not those that failed or were refused."""
+        with self._lock:
+            [count] = self._db.execute(
+                "SELECT COUNT(*) FROM activity_records WHERE user_id = ? AND started_at >= ?"
+                " AND kind = 'reach_out' AND result = 'success'",
+                (user_id, moment.timestamp()),
+            ).fetchone()
+        return count
 
     def taken_since(self, user_ids: Sequence[str], moment: datetime) -> dict[str, dict[str, int]]:
         """How many turns and calls (by `RecordKind`) each of the users took after
@@ -549,7 +730,7 @@ class ActivityLog:
             rows = self._db.execute(
                 "SELECT user_id, kind, COUNT(*) FROM activity_records"
                 f" WHERE user_id IN ({','.join('?' * len(user_ids))}) AND started_at > ?"
-                f" AND {TAKEN} GROUP BY user_id, kind",
+                f" AND {TAKEN} AND {TURNS_AND_CALLS} GROUP BY user_id, kind",
                 [*user_ids, moment.timestamp()],
             ).fetchall()
         taken: dict[str, dict[str, int]] = {}
@@ -569,6 +750,7 @@ class ActivityLog:
 
     def close(self) -> None:
         self._db.close()
+        self._reader.close()
 
     def _write(self, recording: Recording) -> None:
         """Write a finished record with its service calls and, for a call, its turns."""
@@ -625,6 +807,146 @@ class ActivityLog:
             self._db.execute("DELETE FROM activity_records WHERE started_at <= ?", (at,))
 
 
+def _tally(
+    db: sqlite3.Connection,
+    at: float,
+    starts: Sequence[datetime],
+    durations: Sequence[tuple[int, int | None]],
+) -> Tally:
+    who = "COALESCE(user_id, anonymous_id)"
+    records = []
+    for (
+        kind, character, result, own, in_call, reason, level, out_of_line, manipulation,
+        cooled, ended, answered, count,
+    ) in db.execute(
+        "SELECT kind, character_id, result, own_keys != 0, call_id IS NOT NULL, end_reason,"
+        f" {', '.join(JUDGEMENT_COLUMNS)}, ended_conversation IS NOT NULL, answered != 0,"
+        " COUNT(*) FROM activity_records WHERE started_at > ?"
+        " GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12",
+        (at,),
+    ):
+        judged, was_cooled = _reading_judgement(level, out_of_line, manipulation, cooled)
+        records.append(RecordGroup(
+            kind=kind, character_id=character, result=result, own_keys=bool(own),
+            in_call=bool(in_call), end_reason=reason, judged=judged, cooled=was_cooled,
+            ended_conversation=bool(ended), answered=bool(answered), count=count,
+        ))
+    stretch, stretch_params = _stretch("at", starts)
+    calls = [
+        CallGroup(
+            stretch=index, service=service, provider=provider, model=model,
+            own_key=bool(own), error=error, usage_unit=unit, input_told=bool(input_told),
+            output_told=bool(output_told),
+            stripped=json.loads(stripped) if stripped is not None else None, calls=count,
+            usage_input=used_in, usage_output=used_out, usage_cached=cached,
+        )
+        for (
+            index, service, provider, model, own, error, unit, input_told, output_told,
+            stripped, count, used_in, used_out, cached,
+        ) in db.execute(
+            f"SELECT {stretch}, service, provider, model, own_key != 0, error, usage_unit,"
+            " usage_input IS NOT NULL, usage_output IS NOT NULL, stripped_tags, COUNT(*),"
+            " SUM(usage_input), SUM(usage_output), SUM(usage_cached) FROM service_calls"
+            " WHERE at > ? GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 ORDER BY MIN(at)",
+            (*stretch_params, at),
+        )
+    ]
+    users, cooled_users = db.execute(
+        f"SELECT COUNT(DISTINCT {who}), COUNT(DISTINCT CASE WHEN kind = 'turn'"
+        " AND result = 'success' AND affinity_level IS NOT NULL AND cooled"
+        f" THEN {who} END) FROM activity_records WHERE started_at > ? AND {TURNS_AND_CALLS}",
+        (at,),
+    ).fetchone()
+    stretch, stretch_params = _stretch("started_at", starts)
+    taken = {
+        index: Taken(turns, calls_taken, takers)
+        for index, turns, calls_taken, takers in db.execute(
+            f"SELECT {stretch}, SUM(kind = 'turn'), SUM(kind = 'call'), COUNT(DISTINCT {who})"
+            f" FROM activity_records WHERE started_at > ? AND {TURNS_AND_CALLS} GROUP BY 1",
+            (*stretch_params, at),
+        )
+    }
+    bounds = [
+        "SUM(duration_s >= ?" + (" AND duration_s < ?)" if high is not None else ")")
+        for _, high in durations
+    ]
+    within = db.execute(
+        f"SELECT {', '.join(bounds) or 'NULL'} FROM activity_records"
+        " WHERE started_at > ? AND kind = 'call' AND duration_s IS NOT NULL",
+        (*(b for low, high in durations for b in (low, high) if b is not None), at),
+    ).fetchone()
+    by_service = ["service", "own_key != 0"]
+    latency, first_token = (
+        {
+            (service, bool(own)): spread
+            for (service, own), spread in _spreads(
+                db, "service_calls", by_service, measure, "at > ?", (at,)
+            ).items()
+        }
+        for measure in ("latency_ms", "first_token_ms")
+    )
+    speaking, lasted = (
+        _spreads(db, "activity_records", ["kind"], measure, "started_at > ? AND kind = ?",
+                 (at, kind)).get((kind,), Spread(0, {}))
+        for kind, measure in (("turn", "time_to_speak_ms"), ("call", "duration_s"))
+    )
+    return Tally(
+        records=records,
+        calls=calls,
+        users=users,
+        cooled_users=cooled_users,
+        stretches=[taken.get(i, Taken(0, 0, 0)) for i in range(len(starts))],
+        latency=latency,
+        first_token=first_token,
+        time_to_speak=speaking,
+        lasted=lasted,
+        lasted_within=[n or 0 for n in within] if durations else [],
+    )
+
+
+def _stretch(column: str, starts: Sequence[datetime]) -> tuple[str, list[float]]:
+    """Which of the stretches beginning at `starts` a row's time `column` is in, as an SQL
+    expression with its parameters: the first takes in whatever comes before it, the last
+    whatever after. Times are taken to the microsecond, as `_time` reads them."""
+    if len(starts) < 2:
+        return "0", []
+    first, length = starts[0].timestamp(), (starts[1] - starts[0]).total_seconds()
+    return (
+        f"MAX(0, MIN(?, CAST(ROUND({column} - ?, 6) / ? AS INTEGER)))",
+        [len(starts) - 1, first, length],
+    )
+
+
+def _spreads(
+    db: sqlite3.Connection,
+    table: str,
+    group: Sequence[str],
+    measure: str,
+    where: str,
+    params: Sequence[object],
+) -> dict[tuple, Spread]:
+    """The `Spread` of the `measure` column, where known, of the rows of `table` that are
+    `where`, for each `group` of them; sorted in the database, which reads back only the
+    rows at the percentiles."""
+    keys = ", ".join(f"{column} AS g{i}" for i, column in enumerate(group))
+    named = ", ".join(f"g{i}" for i in range(len(group)))
+    # The nearest rank of the pth percentile of n: ceil(p * n / 100), and at least the first.
+    ranks = " OR ".join(f"rank = MAX(1, ({p} * known + 99) / 100)" for p in PERCENTILES)
+    spreads: dict[tuple, Spread] = {}
+    for *key, known, rank, value in db.execute(
+        f"SELECT {named}, known, rank, value FROM (SELECT {keys}, {measure} AS value,"
+        " COUNT(*) OVER whole AS known, ROW_NUMBER() OVER (whole ORDER BY"
+        f" {measure}) AS rank FROM {table} WHERE {where} AND {measure} IS NOT NULL"
+        f" WINDOW whole AS (PARTITION BY {', '.join(group)})) WHERE {ranks}",
+        params,
+    ):
+        spread = spreads.setdefault(tuple(key), Spread(known, {}))
+        for p in PERCENTILES:
+            if rank == max(1, (p * known + 99) // 100):
+                spread.percentiles[p] = value
+    return spreads
+
+
 def _time(epoch: float) -> datetime:
     return datetime.fromtimestamp(epoch, UTC)
 
@@ -672,6 +994,16 @@ def _add_judgement_columns(db: sqlite3.Connection) -> None:
             db.execute(f"ALTER TABLE activity_records ADD COLUMN {column} INTEGER")
     if "ended_conversation" not in columns:
         db.execute("ALTER TABLE activity_records ADD COLUMN ended_conversation TEXT")
+
+
+def _add_answered_column(db: sqlite3.Connection) -> None:
+    """Records written before reach-outs were marked answered have no column for it: none
+    were."""
+    columns = {name for _, name, *_ in db.execute("PRAGMA table_info(activity_records)")}
+    if "answered" not in columns:
+        db.execute(
+            "ALTER TABLE activity_records ADD COLUMN answered INTEGER NOT NULL DEFAULT 0"
+        )
 
 
 def _add_llm_columns(db: sqlite3.Connection) -> None:
@@ -878,6 +1210,8 @@ def judge_origin(settings: JudgeSettings | None) -> Origin:
     """The judge model `settings` choose, as its service calls are recorded."""
     if isinstance(settings, CloudflareJudgeSettings):
         return Origin("judge", host(CLOUDFLARE_API_URL), settings.model)
+    if isinstance(settings, BailianJudgeSettings):  # the region's, not the workspace's
+        return Origin("judge", settings.host, settings.model)
     return Origin(
         "judge", host(settings and settings.base_url), settings.model if settings else "unknown"
     )

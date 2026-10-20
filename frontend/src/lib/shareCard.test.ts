@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { canShare, shareCard, shareFileName, siteAddress, type ShareCardContent } from "@/lib/shareCard";
+import { canShare, coversText, shareCard, shareFileName, siteAddress, type ShareCardContent } from "@/lib/shareCard";
 import type { CharacterInRange, Stats } from "@/lib/stats";
 
 /** 24 hours, all 0 but those given. */
@@ -152,5 +152,34 @@ describe("文件名和网址", () => {
       shown: "localhost:3000",
       landing: "http://localhost:3000/",
     });
+  });
+});
+
+describe("分享图嵌进去的字体切片", () => {
+  const cjk = "U+4E00-4E0F, U+5927, U+1F300-1F320";
+
+  it("切片里有卡上的字才要", () => {
+    expect(coversText(cjk, "近一年")).toBe(true);
+    expect(coversText(cjk, "大")).toBe(true);
+    expect(coversText(cjk, "制作人")).toBe(false);
+  });
+
+  it("区间两端都算在内，大小写不论", () => {
+    expect(coversText("u+4e00-4e0f", "丏")).toBe(true);
+    expect(coversText("U+4E00-4E0F", "丐")).toBe(false);
+  });
+
+  it("增补平面的字按整个码点比", () => {
+    expect(coversText(cjk, "🌀")).toBe(true);
+    expect(coversText("U+D800-DFFF", "🌀")).toBe(false);
+  });
+
+  it("带问号的通配区间", () => {
+    expect(coversText("U+4??", "Ѐӿ")).toBe(true);
+    expect(coversText("U+4??", "Ԁ")).toBe(false);
+  });
+
+  it("没写 unicode-range 的字体全都要", () => {
+    expect(coversText("", "abc")).toBe(true);
   });
 });
