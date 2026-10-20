@@ -403,6 +403,10 @@ class Settings:
     """Where browsers download the stands from, without a trailing slash: the public URL
     of the object storage they are synced to (ADR-0003, revised 2026-09-30). None shows
     every character's call background without her stand."""
+    extra_origins: frozenset[str] = frozenset()
+    """Origins other than this machine's that may change things, e.g. `http://192.168.1.9:3000`
+    to play on a phone over the LAN, or a tunnel's HTTPS origin. Empty unless `.env` sets
+    EIDOLON_EXTRA_ORIGINS; never set in a public deployment, which has a domain instead."""
 
     def __post_init__(self) -> None:
         if self.background_llm is None:
@@ -474,9 +478,19 @@ class Settings:
             secret_key=os.environ.get("EIDOLON_SECRET_KEY") or None,
             gemini_billing_enabled=os.environ.get("GEMINI_BILLING_ENABLED", "").strip() == "1",
             stand_assets_url=stand_assets_url_from_env(),
+            extra_origins=extra_origins_from_env(),
             admins=admins_from_env(),
             contact=os.environ.get("EIDOLON_CONTACT", "").strip() or None,
         )
+
+
+def extra_origins_from_env() -> frozenset[str]:
+    """The origins `.env` allows besides this machine's, as full origins, comma separated;
+    none if it allows none."""
+    raw = os.environ.get("EIDOLON_EXTRA_ORIGINS", "")
+    return frozenset(
+        origin.rstrip("/") for part in raw.split(",") if (origin := part.strip())
+    )
 
 
 def _stt_provider() -> SttProvider:
