@@ -6,6 +6,9 @@ import type { Gender, ProducerProfile } from "@/lib/api";
 /** 和后端的 MAX_FORM_OF_ADDRESS_LENGTH 一致，按字数（Python 的 len）计算。 */
 export const MAX_FORM_OF_ADDRESS = 20;
 
+/** 和后端的 MAX_ABOUT_LENGTH 一致：自己写的介绍最多这么多个字。 */
+export const MAX_ABOUT = 500;
+
 /** 生日的月和日分开选，没选的是 null；只选了月、没选日的草稿不能保存（见 missingBirthDay）。 */
 export type Draft = {
   formOfAddress: string;
@@ -13,6 +16,7 @@ export type Draft = {
   timezone: string;
   birthMonth: number | null;
   birthDay: number | null;
+  about: string;
 };
 
 export function toDraft(profile: ProducerProfile): Draft {
@@ -22,6 +26,7 @@ export function toDraft(profile: ProducerProfile): Draft {
     timezone: profile.timezone ?? "",
     birthMonth: profile.birthday?.month ?? null,
     birthDay: profile.birthday?.day ?? null,
+    about: profile.about ?? "",
   };
 }
 
@@ -36,6 +41,7 @@ export function fromDraft(draft: Draft): ProducerProfile {
       draft.birthMonth !== null && draft.birthDay !== null
         ? { month: draft.birthMonth, day: draft.birthDay }
         : null,
+    about: draft.about.trim() || null,
   };
 }
 
@@ -51,14 +57,15 @@ export function missingBirthDay(draft: Draft): boolean {
   return draft.birthMonth !== null && draft.birthDay === null;
 }
 
-/** 两份草稿存下去是否一样（称呼两端的空白保存时会去掉，不算改动）。 */
+/** 两份草稿存下去是否一样（称呼和介绍两端的空白保存时会去掉，不算改动）。 */
 export function sameDraft(a: Draft, b: Draft): boolean {
   return (
     a.formOfAddress.trim() === b.formOfAddress.trim() &&
     a.gender === b.gender &&
     a.timezone === b.timezone &&
     a.birthMonth === b.birthMonth &&
-    a.birthDay === b.birthDay
+    a.birthDay === b.birthDay &&
+    a.about.trim() === b.about.trim()
   );
 }
 
@@ -66,6 +73,17 @@ export function sameDraft(a: Draft, b: Draft): boolean {
 export function clampFormOfAddress(value: string): string {
   const chars = Array.from(value);
   return chars.length > MAX_FORM_OF_ADDRESS ? chars.slice(0, MAX_FORM_OF_ADDRESS).join("") : value;
+}
+
+/** 介绍最多 MAX_ABOUT 个字，同样按字截；换行留着，她读得到分段。 */
+export function clampAbout(value: string): string {
+  const chars = Array.from(value);
+  return chars.length > MAX_ABOUT ? chars.slice(0, MAX_ABOUT).join("") : value;
+}
+
+/** 这段介绍有多少个字，和截断的口径一致。 */
+export function countAbout(value: string): number {
+  return Array.from(value).length;
 }
 
 /** 生日这个月最多到几日。不含年份，2 月按闰年算到 29 日（和后端的校验一致）。 */

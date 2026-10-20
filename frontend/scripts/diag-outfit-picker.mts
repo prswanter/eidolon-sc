@@ -9,7 +9,7 @@ const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await context.newPage();
 
-const failed = [];
+const failed: string[] = [];
 page.on("requestfailed", (r) => failed.push(`${r.url()} :: ${r.failure()?.errorText}`));
 
 await page.goto(BASE, { waitUntil: "domcontentloaded" });
@@ -32,8 +32,6 @@ console.log("service-status:", status);
 await page.goto(`${BASE}/conversation/${CHARACTER}`, { waitUntil: "networkidle" });
 await page.waitForTimeout(1500);
 
-// 更多操作（DropdownMenuTrigger）
-const more = page.locator("button:has(svg), button").filter({ hasText: /^\s*$/ });
 // 用图标按钮的 aria 找：先列出所有按钮的可访问名，方便排错
 const names = await page.locator("button").evaluateAll((els) =>
   els.map((e) => (e.getAttribute("aria-label") || e.textContent || "").trim()).filter(Boolean),

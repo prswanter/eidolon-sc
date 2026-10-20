@@ -208,6 +208,8 @@ export type ProducerProfile = {
   gender: Gender | null;
   timezone: string | null;
   birthday: Birthday | null;
+  /** What the user wrote about themselves, in their own words. */
+  about: string | null;
 };
 
 /** The producer's birthday: month and day only, no year. */

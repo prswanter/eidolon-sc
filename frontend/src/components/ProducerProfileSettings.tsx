@@ -18,15 +18,19 @@ import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/c
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 import { copy } from "@/i18n";
 import { saveProfile, type Gender } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 import {
   chooseBirthMonth,
+  clampAbout,
   clampFormOfAddress,
+  countAbout,
   daysInMonth,
   fromDraft,
   missingBirthDay,
+  MAX_ABOUT,
   sameDraft,
   toDraft,
   type Draft,
@@ -240,6 +244,32 @@ export function ProducerProfileSettings() {
             </div>
             <FieldDescription>{t.birthdayHint}</FieldDescription>
             {showDayMissing && <FieldError id={`${id}-birthday-error`}>{t.birthDayMissing}</FieldError>}
+          </Field>
+
+          <Field>
+            <FieldLabel
+              htmlFor={`${id}-about`}
+              className="w-full items-baseline justify-between gap-3"
+            >
+              <span>{t.about}</span>
+              <span
+                aria-hidden="true"
+                className="shrink-0 text-sm font-normal tabular-nums text-muted-foreground"
+              >
+                {t.aboutCount(countAbout(draft.about), MAX_ABOUT)}
+              </span>
+            </FieldLabel>
+            <Textarea
+              id={`${id}-about`}
+              value={draft.about}
+              onChange={(event) => update({ about: clampAbout(event.target.value) })}
+              placeholder={t.aboutPlaceholder}
+              spellCheck={false}
+              autoComplete="off"
+              rows={4}
+              aria-describedby={`${id}-about-hint`}
+            />
+            <FieldDescription id={`${id}-about-hint`}>{t.aboutHint}</FieldDescription>
           </Field>
 
           {failure && <FailureNotice failure={failure} />}

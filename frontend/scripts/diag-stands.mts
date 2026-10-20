@@ -8,7 +8,7 @@ const browser = await chromium.launch();
 const context = await browser.newContext({ ignoreHTTPSErrors: IGNORE });
 const page = await context.newPage();
 
-const problems = [];
+const problems: string[] = [];
 page.on("console", (m) => {
   if (m.type() === "error") problems.push(`[console] ${m.text()}`);
 });
@@ -19,20 +19,22 @@ await page.goto(PAGE, { waitUntil: "domcontentloaded", timeout: 30000 }).catch((
 );
 
 const result = await page.evaluate(async () => {
-  const out = {};
+  const out: Record<string, unknown> = {};
   const json = await fetch("/api/characters", { credentials: "include" }).then((r) => r.json());
-  const list = Array.isArray(json) ? json : (json.characters ?? []);
+  const list: { id: string; stand?: { outfits_url: string; default_outfit: { url: string } } }[] =
+    Array.isArray(json) ? json : (json.characters ?? []);
   const withStand = list.filter((c) => c.stand);
   out.characters = list.length;
   out.withStand = withStand.length;
   const one = withStand[0];
-  if (!one) return out;
+  const stand = one?.stand;
+  if (!one || !stand) return out;
   out.id = one.id;
-  out.outfitsUrl = one.stand.outfits_url;
-  const origin = new URL(one.stand.outfits_url).origin;
+  out.outfitsUrl = stand.outfits_url;
+  const origin = new URL(stand.outfits_url).origin;
   out.origin = origin;
   try {
-    const r = await fetch(one.stand.outfits_url);
+    const r = await fetch(stand.outfits_url);
     out.listStatus = r.status;
     const body = await r.json();
     out.cards = (body.cards ?? []).length;
@@ -40,7 +42,7 @@ const result = await page.evaluate(async () => {
     out.listError = String(e);
   }
   try {
-    const r = await fetch(one.stand.default_outfit.url + "data.json");
+    const r = await fetch(stand.default_outfit.url + "data.json");
     out.spineStatus = r.status;
   } catch (e) {
     out.spineError = String(e);
