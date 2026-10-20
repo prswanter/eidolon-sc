@@ -16,13 +16,16 @@ on (GLOSSARY.md「好感度」), how the judge model judged the turns recorded, 
 they began, in all and for each character, with how often she hung up a call or ended a
 conversation (`affinity`). How many times characters reached out (GLOSSARY.md「搭话」), how
 many times that failed, and the share answered (`reach_outs`), where the deployer has them on
-or any were recorded in the range. Nothing anyone said is in it, nor whose any of it was.
+or any were recorded in the range. How many times each daily task was done (GLOSSARY.md
+「每日任务」, `daily_tasks`), where affinity is on or any were done in the range. Nothing
+anyone said is in it, nor whose any of it was.
 
 How many calls are in progress now is not in the records but the calls themselves:
 `/api/admin/calls/live`, which the page asks every minute.
 
-The records are summed up in the database (`ActivityLog.tally`), not read one by one: a range
-may hold millions.
+The records are summed up from their rollups (`ActivityLog.tally`), not read one by one: a
+range may hold millions. A range so begins where the slot of 15 minutes its first moment falls
+in does (`activity.range_start`).
 """
 
 from collections import Counter, defaultdict
@@ -36,6 +39,7 @@ from fastapi import FastAPI, Header, Query
 
 from eidolon.activity import (
     CALL_END_REASONS,
+    DURATIONS,
     LLM_SERVICES,
     RESULTS,
     SERVICES,
@@ -44,11 +48,13 @@ from eidolon.activity import (
     Spread,
     Taken,
     Tally,
+    range_start,
 )
 from eidolon.affinity import LEVEL_STEPS, Judged
 from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
 from eidolon.config import ServiceName
+from eidolon.happenings import DAILY_TASKS
 from eidolon.photo_prompt import CROSSINGS
 from eidolon.prices import cost
 
@@ -83,11 +89,14 @@ def add_dashboard_routes(app: FastAPI, backend: Backend) -> None:
         """The activity of the last `range`, summed up."""
         span = SPANS[range]
         now = backend.clock()
+        start = range_start(now - span.length)
         starts = stretches(now, span, _zone(timezone))
-        tally = backend.activity.tally(now - span.length, starts, DURATIONS)
-        # Reach-outs are no turns nor calls, and taken by no user; their service calls count.
-        records = [r for r in tally.records if r.kind != "reach_out"]
+        tally = backend.activity.tally(start, starts)
+        # Reach-outs and daily tasks done are no turns nor calls, and taken by no user; the
+        # reach-outs' service calls count.
+        records = [r for r in tally.records if r.kind in ("turn", "call")]
         reach_out_records = [r for r in tally.records if r.kind == "reach_out"]
+        task_records = [r for r in tally.records if r.kind == "daily_task"]
         names = {id: c.name for id, c in backend.characters.items()}
         spent = cost(tally.calls, backend.prices.pricing(), starts)
         backend.prices.catalog.refresh_soon(
@@ -95,7 +104,7 @@ def add_dashboard_routes(app: FastAPI, backend: Backend) -> None:
         )
         return {
             "range": range,
-            "from": (now - span.length).isoformat(),
+            "from": start.isoformat(),
             "to": now.isoformat(),
             "bucket": span.bucket,
             "health": health(tally),
@@ -111,6 +120,10 @@ def add_dashboard_routes(app: FastAPI, backend: Backend) -> None:
             "reach_outs": (
                 reach_outs(reach_out_records)
                 if backend.config.reach_outs.enabled or reach_out_records else None
+            ),
+            "daily_tasks": (
+                daily_tasks(task_records)
+                if backend.config.affinity_on or task_records else None
             ),
             "cost": spent,
         }
@@ -241,12 +254,6 @@ def turns(records: Sequence[RecordGroup], speaking: Spread) -> dict:
 CALL_RESULTS = ("success", "failed", "rejected", "not_connected")
 """How a call can turn out: a user leaving a call is hanging it up, not a result."""
 
-DURATIONS: tuple[tuple[int, int | None], ...] = (
-    (0, 60), (60, 180), (180, 600), (600, 1800), (1800, None)
-)
-"""The stretches, in seconds, calls' durations are counted in."""
-
-
 def calls(records: Sequence[RecordGroup], tally: Tally) -> dict:
     """The calls: how they turned out, on whose keys, how long those that connected
     lasted, and why each ended (a call refused over the limit never began, so did not)."""
@@ -366,6 +373,11 @@ def reach_outs(records: Sequence[RecordGroup]) -> dict:
             _count(r for r in succeeded if r.answered) / _count(succeeded) if succeeded else None
         ),
     }
+
+
+def daily_tasks(records: Sequence[RecordGroup]) -> dict[str, int]:
+    """How many times each daily task was done, by its id, in the order of `DAILY_TASKS`."""
+    return {t.id: _count(r for r in records if r.result == t.id) for t in DAILY_TASKS}
 
 
 def _share(turns: Sequence[RecordGroup], moved: Callable[[float], bool]) -> float:
