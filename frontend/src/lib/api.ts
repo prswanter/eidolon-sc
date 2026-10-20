@@ -779,3 +779,48 @@ export async function* sendTurn(conversationId: string, text: string, userId: st
     }
   }
 }
+
+/** 一位角色的人设卡，和它在编辑页里的样子（`/sheets`）：写着她是谁、怎么说话，是每轮提示词的第一段。 */
+export type Sheet = { id: string; name: string; sheet: string };
+
+/** 回复格式的三段（`/reply-format`）：分段与长度、给只认方括号的模型用的语气提示、给认成对标签的模型用的那一段。 */
+export type ReplyFormatBlocks = { format: string; cues: string; directed_cues: string };
+
+/** 回复格式现在的样子：`defaults` 是程序自带的写法，「恢复默认」换回它；`is_overridden` 说现在用的是不是改过的。 */
+export type ReplyFormat = ReplyFormatBlocks & { defaults: ReplyFormatBlocks; is_overridden: boolean };
+
+/** 每位角色的人设卡，按原作偶像编号排。 */
+export async function getSheets(): Promise<Sheet[]> {
+  return json(await api("/api/editor/sheets"));
+}
+
+/** 存下她的人设卡：后端写进 characters/sheets 下的文件，下一轮对话就用新的。 */
+export async function saveSheet(id: string, sheet: string): Promise<Sheet> {
+  return json(
+    await api(`/api/editor/sheets/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sheet }),
+    }),
+  );
+}
+
+export async function getReplyFormat(): Promise<ReplyFormat> {
+  return json(await api("/api/editor/reply-format"));
+}
+
+/** 存下回复格式：后端存在数据库旁边，下一轮对话就用新的。 */
+export async function saveReplyFormat(blocks: ReplyFormatBlocks): Promise<ReplyFormat> {
+  return json(
+    await api("/api/editor/reply-format", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(blocks),
+    }),
+  );
+}
+
+/** 恢复成程序自带的回复格式：删掉存过的改动。 */
+export async function resetReplyFormat(): Promise<ReplyFormat> {
+  return json(await api("/api/editor/reply-format", { method: "DELETE" }));
+}

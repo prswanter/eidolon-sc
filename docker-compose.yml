@@ -4,7 +4,7 @@ services:
     env_file: .env
     volumes:
       - eidolon-data:/data
-      - ./characters:/characters:ro
+      - ./characters:/characters # 人设卡编辑（/sheets）要往回写，所以不能只读
       - ./corpus:/corpus # 立绘同步要把素材写进 corpus/stand，所以这里不能只读
       - ./deploy:/deploy:ro # 活动名对照表 event-names.toml（同步时读取）
     restart: unless-stopped

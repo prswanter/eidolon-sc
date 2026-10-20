@@ -63,6 +63,9 @@ export { Captions as TextOnlyIcon } from "lucide-react";
 // 导航栏（电脑）和 dock（手机）的三项。
 export { Gift as GiftIcon, MessageCircle as ConversationsIcon, Settings as SettingsIcon } from "lucide-react";
 
+// 导航栏最后两项：编辑人设卡、编辑回复格式。
+export { MessageSquareCode as ReplyFormatIcon, ScrollText as SheetIcon } from "lucide-react";
+
 // 礼物页：抽奖台的「抽一次」和抽到稀有礼物时插画角上的闪光；我的礼物的四个类别筛选；
 // 重置卡确认框里「现在的档位 → 信任」的箭头。
 export { Sparkles as DrawIcon, Sparkles as RareIcon } from "lucide-react";

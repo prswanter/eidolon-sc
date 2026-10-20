@@ -17,13 +17,22 @@ Before her first segment, in a turn she may send a photo in, she can write a pho
 closes (`PhotoTagged`), apart from the segments, neither shown nor voiced. One written
 anywhere else, between segments or in the middle of her words, or after the first, is left
 out of the reply as if never written.
+
+The format's wording is the deployment's to change from the site (`/reply-format`), which
+keeps the rewording beside the database rather than here; the tags stay as they are
+either way.
 """
 
+import json
+import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal
 
-from eidolon.config import FishAudioModel
+from eidolon.config import FishAudioModel, database_path_from_env
 from eidolon.delivery_cues import TAG_READERS, CueFilter
+
+log = logging.getLogger(__name__)
 
 Lang = Literal["ja", "zh"]
 
@@ -76,10 +85,69 @@ DIRECTED_FORMAT_INSTRUCTIONS = _FORMAT + _DIRECTED_CUES
 """The reply format, for a turn voiced with a model that reads paired tags too, and
 directions as long as a director's (`delivery_cues.TAG_READERS`)."""
 
+DEFAULTS: dict[str, str] = {"format": _FORMAT, "cues": _CUES, "directed_cues": _DIRECTED_CUES}
+"""The three blocks above, which a deployment may reword from the site (`/reply-format`):
+the first goes with either of the other two, as the constants do.
+
+Rewording cannot touch the tags themselves: the parser reads `<ja>`, `<zh>` and `<photo>`,
+and what is not in them is left out of the reply, so a format without them leaves her
+reply empty."""
+
+BLOCKS = tuple(DEFAULTS)
+"""The blocks, in the order the editor shows them."""
+
+OVERRIDES_NAME = "reply_format.json"
+"""Where the rewording is kept: beside the database, so that it outlives a new image and
+is not in the repository, unlike the sheets."""
+
+
+def overrides_path() -> Path:
+    """The file the rewording is kept in, or would be."""
+    return database_path_from_env().parent / OVERRIDES_NAME
+
+
+def load_overrides() -> dict[str, str]:
+    """The deployment's rewording, by block; empty when there is none, or the file cannot be
+    read, in which case the blocks here are used as they are."""
+    path = overrides_path()
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        log.warning("回复格式的改动 (%s) 读不出来，先用程序内置的格式", path)
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {name: text for name in BLOCKS if isinstance(text := raw.get(name), str) and text.strip()}
+
+
+def current_blocks() -> dict[str, str]:
+    """The blocks as a turn uses them: the deployment's rewording of each, or the text here."""
+    overrides = load_overrides()
+    return {name: overrides.get(name, default) for name, default in DEFAULTS.items()}
+
+
+def save_overrides(blocks: dict[str, str]) -> None:
+    """Make `blocks` the format turns use from now on, writing all three, any left out as
+    this module has it. Raises OSError when the file cannot be written."""
+    path = overrides_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    kept = {name: blocks.get(name, default) for name, default in DEFAULTS.items()}
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(kept, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def clear_overrides() -> None:
+    """Go back to the format this module has."""
+    overrides_path().unlink(missing_ok=True)
+
 
 def format_instructions(voiced_by: FishAudioModel | None) -> str:
     """The reply format, for a turn voiced with `voiced_by`; None for one not voiced."""
-    return DIRECTED_FORMAT_INSTRUCTIONS if voiced_by in TAG_READERS else FORMAT_INSTRUCTIONS
+    blocks = current_blocks()
+    return blocks["format"] + (blocks["directed_cues"] if voiced_by in TAG_READERS else blocks["cues"])
 
 
 @dataclass(frozen=True)
