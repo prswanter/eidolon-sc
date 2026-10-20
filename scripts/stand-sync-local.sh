@@ -88,6 +88,15 @@ esac
 if [ "$status" -eq 0 ]; then
   echo
   echo "完成。浏览器从这里读立绘：$(sed -n 's/^EIDOLON_STAND_ASSETS_URL=//p' .env)"
+  # 素材传上去了、浏览器却不认自签证书时，页面会静默地什么都不显示（换衣装空白、通话没立绘），
+  # 控制台只有一行 ERR_CERT_AUTHORITY_INVALID，很容易被当成「同步没成功」。
+  if sh scripts/trust-local-ca.sh --check >/dev/null 2>&1; then
+    echo "自签根证书已信任，浏览器可以取到这些文件。"
+  else
+    echo
+    echo "⚠ 自签根证书还没装进浏览器信任的证书库，页面会取不到立绘（换衣装空白、通话没立绘）。"
+    echo "  跑一次：sh scripts/trust-local-ca.sh"
+  fi
 fi
 
 exit "$status"
