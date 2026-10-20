@@ -36,6 +36,7 @@ from eidolon.greetings import (
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.own_keys import BroughtKeys, CallsUnavailable, UnknownService, named_services
 from eidolon.producer import (
+    MAX_ABOUT_LENGTH,
     MAX_FORM_OF_ADDRESS_LENGTH,
     Birthday,
     Gender,
@@ -54,6 +55,7 @@ from eidolon.admin_prices_api import add_admin_price_routes
 from eidolon.announcements_api import add_announcement_routes
 from eidolon.gifts_api import add_gift_routes
 from eidolon.photos_api import add_photo_routes
+from eidolon.prompt_editor_api import add_prompt_editor_routes
 from eidolon.sessions import UserId, session_middleware
 from eidolon.sponsor_api import add_sponsor_routes
 from eidolon.stats import add_stats_routes
@@ -123,6 +125,7 @@ class ProfileInput(BaseModel):
     gender: Gender | None = None
     timezone: str | None = None
     birthday: BirthdayInput | None = None
+    about: str | None = None
 
     @field_validator("form_of_address")
     @classmethod
@@ -130,6 +133,14 @@ class ProfileInput(BaseModel):
         value = (value or "").strip()
         if len(value) > MAX_FORM_OF_ADDRESS_LENGTH:
             raise ValueError(f"称呼最多 {MAX_FORM_OF_ADDRESS_LENGTH} 个字")
+        return value or None
+
+    @field_validator("about")
+    @classmethod
+    def _about(cls, value: str | None) -> str | None:
+        value = (value or "").strip()
+        if len(value) > MAX_ABOUT_LENGTH:
+            raise ValueError(f"关于我只能写 {MAX_ABOUT_LENGTH} 个字")
         return value or None
 
     @field_validator("timezone")
@@ -362,6 +373,7 @@ def create_app(backend: Backend) -> FastAPI:
     add_announcement_routes(app, backend)
     add_gift_routes(app, backend)
     add_photo_routes(app, backend)
+    add_prompt_editor_routes(app, backend)
     add_sponsor_routes(app, backend)
     add_data_package_routes(app, backend)
     add_stats_routes(app, backend)
@@ -419,7 +431,9 @@ def create_app(backend: Backend) -> FastAPI:
     @app.put("/api/profile")
     def update_profile(body: ProfileInput, user_id: UserId) -> dict:
         birthday = body.birthday and Birthday(body.birthday.month, body.birthday.day)
-        profile = ProducerProfile(body.form_of_address, body.gender, body.timezone, birthday)
+        profile = ProducerProfile(
+            body.form_of_address, body.gender, body.timezone, birthday, body.about
+        )
         store.save_profile(user_id, profile)
         return asdict(profile)
 

@@ -11,6 +11,9 @@ describe("在不在导航外壳里", () => {
     "/settings?tab=own-keys",
     "/settings/own-keys",
     "/gifts?to=mano",
+    "/sheets",
+    "/sheets?character=mano",
+    "/reply-format",
   ])("%s 在外壳里", (href) => {
     expect(isInShell(href)).toBe(true);
   });
@@ -28,6 +31,9 @@ describe("在不在导航外壳里", () => {
     "/conversations-old",
     "/settingsx",
     "/gifts/cake",
+    "/sheets-old",
+    "/sheets/mano",
+    "/reply-format/default",
     "/api/auth/link/google",
   ])("%s 在外壳外面", (href) => {
     expect(isInShell(href)).toBe(false);
@@ -95,6 +101,8 @@ describe("导航栏和 dock 的当前项", () => {
     ["/settings", "settings"],
     ["/settings/own-keys", "settings"],
     ["/gifts?to=mano", "gifts"],
+    ["/sheets", "sheets"],
+    ["/reply-format", "reply-format"],
   ] as const)("%s 的当前项是 %s", (href, item) => {
     expect(currentNavItem(href)).toBe(item);
   });
@@ -108,6 +116,8 @@ describe("点导航栏、dock 里的一项去哪", () => {
   it("点别的项，去那一项的第一级", () => {
     expect(navDestination("settings", "/conversation/mano")).toBe("/settings");
     expect(navDestination("gifts", "/settings/call")).toBe("/gifts");
+    expect(navDestination("sheets", "/reply-format")).toBe("/sheets");
+    expect(navDestination("reply-format", "/sheets")).toBe("/reply-format");
   });
 
   it("在二级页面上（她的对话页、设置的一类）再点当前那一项，回到这一项的第一级", () => {

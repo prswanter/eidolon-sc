@@ -25,9 +25,14 @@ function conversationOf(path: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-/** The conversations (list and each character's page), the gifts page and the settings
- * (memories among them) are in the shell; the admin console, `/about`, the privacy policy, the
- * terms, sign-in and consent are out of it, and so is anything on another site. */
+/** The two editors' pages, which the shell holds as it holds the settings. */
+export const SHEET_EDITOR = "/sheets";
+export const REPLY_FORMAT_EDITOR = "/reply-format";
+
+/** The conversations (list and each character's page), the gifts page, the settings
+ * (memories among them) and the two editors (a character's sheet, the reply format) are in
+ * the shell; the admin console, `/about`, the privacy policy, the terms, sign-in and
+ * consent are out of it, and so is anything on another site. */
 export function isInShell(href: string): boolean {
   const { path, local } = pathOf(href);
   if (!local) return false;
@@ -36,7 +41,9 @@ export function isInShell(href: string): boolean {
     conversationOf(path) !== null ||
     path === "/gifts" ||
     path === "/settings" ||
-    path.startsWith("/settings/")
+    path.startsWith("/settings/") ||
+    path === SHEET_EDITOR ||
+    path === REPLY_FORMAT_EDITOR
   );
 }
 
@@ -58,16 +65,19 @@ export function departure(href: string, callee: string | null): Departure {
   return other !== null && other !== callee ? "ask" : "keep";
 }
 
-/** The items of the rail and the dock, top to bottom (left to right on the dock). */
-export const NAV_ITEMS = ["conversations", "gifts", "settings"] as const;
+/** The items of the rail and the dock, top to bottom (left to right on the dock). The editors
+ * come last: they are the deployer's tools, opened now and then, not on the way anywhere. */
+export const NAV_ITEMS = ["conversations", "gifts", "settings", "sheets", "reply-format"] as const;
 export type NavItem = (typeof NAV_ITEMS)[number];
 
 /** Each item's first level; her conversation page and a settings category below it are its second.
- * The gifts page has no second level. */
+ * The gifts page and the two editors have no second level. */
 export const FIRST_LEVEL: Record<NavItem, string> = {
   conversations: "/conversations",
   gifts: "/gifts",
   settings: "/settings",
+  sheets: SHEET_EDITOR,
+  "reply-format": REPLY_FORMAT_EDITOR,
 };
 
 /** The item the URL is under, marked current on the rail and the dock; null out of the shell. */
@@ -75,6 +85,8 @@ export function currentNavItem(href: string): NavItem | null {
   const { path } = pathOf(href);
   if (!isInShell(href)) return null;
   if (path === "/gifts") return "gifts";
+  if (path === SHEET_EDITOR) return "sheets";
+  if (path === REPLY_FORMAT_EDITOR) return "reply-format";
   return path === "/settings" || path.startsWith("/settings/") ? "settings" : "conversations";
 }
 

@@ -37,8 +37,15 @@ PROFILE = {
     "gender": "female",
     "timezone": "Asia/Tokyo",
     "birthday": {"month": 2, "day": 29},
+    "about": "在做影像制作，常常熬夜。",
 }
-EMPTY_PROFILE = {"form_of_address": None, "gender": None, "timezone": None, "birthday": None}
+EMPTY_PROFILE = {
+    "form_of_address": None,
+    "gender": None,
+    "timezone": None,
+    "birthday": None,
+    "about": None,
+}
 NOTHING_ELSE = {"conversations": 0, "photos": 0, "memories": 0, "skipped": []}
 
 
@@ -115,12 +122,12 @@ async def test_the_producer_profile_moves_to_another_deployment(
     entries, manifest, data = unzipped(package)
     assert [e.filename for e in entries] == ["manifest.json", "data.json"]
     assert entries[0].compress_type == zipfile.ZIP_STORED
-    assert manifest["format"] == 2
+    assert manifest["format"] == data_package.FORMAT
     assert manifest["categories"] == ["profile"]
     assert manifest["counts"] == {"profile": 1}
     assert data == {"profile": {
         "form_of_address": "小林", "gender": "female", "timezone": "Asia/Tokyo",
-        "birthday_month": 2, "birthday_day": 29,
+        "birthday_month": 2, "birthday_day": 29, "about": "在做影像制作，常常熬夜。",
     }}
 
     res = await import_package(there, package, "profile")
@@ -144,7 +151,7 @@ async def test_a_profile_left_unset_in_the_package_clears_the_one_here(
     _, _, data = unzipped(package)
     assert data == {"profile": {
         "form_of_address": None, "gender": None, "timezone": None,
-        "birthday_month": None, "birthday_day": None,
+        "birthday_month": None, "birthday_day": None, "about": None,
     }}
     res = await import_package(there, package, "profile")
 
@@ -191,9 +198,9 @@ async def test_a_package_from_a_newer_version_is_refused_whatever_its_entries(
     make_client: ClientFactory,
 ):
     client = make_client(FakeLLM())
-    newer = json.dumps({**MANIFEST, "format": 3, "categories": ["albums"]})
+    newer = json.dumps({**MANIFEST, "format": 4, "categories": ["albums"]})
     packages = {
-        "entries as now": package_of({**MANIFEST, "format": 3, "categories": ["albums"]}, {}),
+        "entries as now": package_of({**MANIFEST, "format": 4, "categories": ["albums"]}, {}),
         "no data.json, entries of its own": _zip(
             {"manifest.json": newer, "albums.json": "{}", "albums/1.json": "{}"}
         ),

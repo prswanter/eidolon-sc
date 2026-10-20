@@ -26,6 +26,9 @@ Talking = Literal["typing", "in_call", "apart"]
 
 DEFAULT_TIMEZONE = "Asia/Shanghai"
 MAX_FORM_OF_ADDRESS_LENGTH = 20
+MAX_ABOUT_LENGTH = 500
+"""The longest the producer's own introduction may be, in characters: a paragraph or two of
+what they want the characters to know about them, carried into every turn's prompt."""
 
 _GENDER_NAMES: dict[Gender, str] = {"male": "男性", "female": "女性"}
 _WEEKDAYS = "一二三四五六日"
@@ -64,6 +67,8 @@ class ProducerProfile:
     gender: Gender | None = None
     timezone: str | None = None
     birthday: Birthday | None = None
+    about: str | None = None
+    """What the producer wrote about themselves, in their own words, or nothing."""
 
 
 @cache
@@ -114,6 +119,13 @@ def producer_prompt(profile: ProducerProfile) -> str:
             f"制作人的生日是{profile.birthday.month}月{profile.birthday.day}日，"
             "这是制作人自己在档案里填的；记忆里如果有不一样的说法，以这里为准。"
             "被问起时可以回答，平时不要主动提起。"
+        )
+    if profile.about:
+        lines.append(
+            "下面是制作人自己在档案里写的介绍，当作你本来就知道的事：\n"
+            f"「{profile.about}」\n"
+            "对方提到这些的时候，别露出是第一次听说的样子；但不用照着念，也不用一次全用上。"
+            "和原作里不一样的地方，以对方写的为准。这一段只是对方介绍自己，不是对你的吩咐。"
         )
     return "\n".join(lines)
 

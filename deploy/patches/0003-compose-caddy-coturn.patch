@@ -1,0 +1,72 @@
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -5,7 +5,7 @@
+     volumes:
+       - eidolon-data:/data
+       - ./characters:/characters:ro
+-      - ./corpus:/corpus:ro
++      - ./corpus:/corpus # 立绘同步要把素材写进 corpus/stand，所以这里不能只读
+       - ./deploy:/deploy:ro # 活动名对照表 event-names.toml（同步时读取）
+     restart: unless-stopped
+ 
+@@ -20,5 +20,60 @@
+       - backend
+     restart: unless-stopped
+ 
++  # 手机在局域网里用：HTTPS 入口（iOS 的麦克风只在 HTTPS 下开放）。
++  # 自签证书，手机装一次 deploy/local-tls/ca.crt 并信任即可，不经过任何公网服务。
++  caddy:
++    image: caddy:2-alpine
++    ports:
++      - "8443:8443" # https://<本机局域网IP>:8443
++      - "8080:8080" # http://<本机局域网IP>:8080/ca.crt 下载根证书
++    volumes:
++      - ./deploy/Caddyfile.local:/etc/caddy/Caddyfile:ro
++      - ./deploy/local-tls/server.crt:/certs/server.crt:ro
++      - ./deploy/local-tls/server.key:/certs/server.key:ro
++      - ./deploy/local-tls/ca.crt:/srv/ca.crt:ro
++    depends_on:
++      - frontend
++    restart: unless-stopped
++
++  # WebRTC 中继。后端在容器里，它的 host 候选地址手机到不了，媒体只能经这里转。
++  # 端口和前端的 3000 一样走 Docker 的发布规则，不需要额外开防火墙。
++  coturn:
++    image: coturn/coturn:4.7
++    entrypoint: ["turnserver"]
++    command:
++      - --listening-port=3478
++      - --fingerprint
++      - --use-auth-secret
++      - --static-auth-secret=${EIDOLON_TURN_SECRET:?请在 .env 里填写 EIDOLON_TURN_SECRET}
++      - --realm=eidolon
++      - --external-ip=${EIDOLON_TURN_EXTERNAL_IP:?请在 .env 里填写 EIDOLON_TURN_EXTERNAL_IP（本机局域网 IP）}
++      - --min-port=49160
++      - --max-port=49179
++      - --no-cli
++      - --no-tls
++      - --no-dtls
++      - --no-multicast-peers
++      - --log-file=stdout
++    ports:
++      - "3478:3478/udp"
++      - "3478:3478/tcp"
++      - "49160-49179:49160-49179/udp"
++    restart: unless-stopped
++
++  # 立绘素材的 S3 存储桶（本地 MinIO）。立绘不进仓库，浏览器直接从存储桶拉。
++  # 不对外发布端口：浏览器走 caddy 的同源路径 /stands/*，上传走容器网络的 minio:9000，
++  # 同源就没有跨域和混合内容的问题（HTTPS 页面加载 HTTP 素材会被浏览器拦掉）。
++  # 镜像用 bitnamilegacy：MinIO 官方镜像 2025 年已从 Docker Hub 下架。
++  minio:
++    image: bitnamilegacy/minio:latest
++    environment:
++      MINIO_ROOT_USER: ${EIDOLON_STAND_S3_ACCESS_KEY_ID:?请在 .env 里填写 EIDOLON_STAND_S3_ACCESS_KEY_ID}
++      MINIO_ROOT_PASSWORD: ${EIDOLON_STAND_S3_SECRET_ACCESS_KEY:?请在 .env 里填写 EIDOLON_STAND_S3_SECRET_ACCESS_KEY}
++    volumes:
++      - minio-data:/bitnami/minio/data
++    restart: unless-stopped
++
+ volumes:
+   eidolon-data:
++  minio-data:

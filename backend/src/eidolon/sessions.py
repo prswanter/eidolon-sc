@@ -54,7 +54,9 @@ def origin_allowed(origin: str | None, signed_in: bool, settings: Settings) -> b
     if settings.domain is not None:
         return origin == settings.public_origin
     parts = urlsplit(origin)
-    return parts.scheme == "http" and parts.hostname in _LOCAL_HOSTS
+    return (
+        parts.scheme == "http" and parts.hostname in _LOCAL_HOSTS
+    ) or origin.rstrip("/") in settings.extra_origins
 
 
 def session_middleware(

@@ -2,282 +2,145 @@
 
 <img src="docs/images/landing.webp" alt="Eidolon-SC：和 283 事务所的偶像说说话" width="100%">
 
-**和《偶像大师 闪耀色彩》的偶像实时对话的 AI 分身**
+# Eidolon-SC · 个人分支
 
-语音 · 文字 · 剧情回忆 · 跨角色共享记忆
+**和《偶像大师 闪耀色彩》的偶像实时对话的 AI 分身 —— 一份改来自己用的分支**
 
-**简体中文** · [English](README.en.md) · [日本語](README.ja.md)
-
-[![CI](https://img.shields.io/github/actions/workflow/status/Sallyn0225/eidolon-sc/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI)](https://github.com/Sallyn0225/eidolon-sc/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](backend/pyproject.toml)
-[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Pipecat](https://img.shields.io/badge/Pipecat-WebRTC-6E56CF?style=flat-square)](https://github.com/pipecat-ai/pipecat)
-[![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs&logoColor=white)](frontend/package.json)
-[![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](frontend/package.json)
-[![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
-[![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-A42E2B?style=flat-square&logo=gnu&logoColor=white)](LICENSE)
-
-[预览](#-预览) · [特性](#-特性) · [快速开始](#-快速开始) · [配置指南](docs/configuration.md) · [部署](docs/deploy.md) · [架构决策](docs/adr/)
+上游：[Sallyn0225/eidolon-sc](https://github.com/Sallyn0225/eidolon-sc) · 本分支：[prswanter/eidolon-sc](https://github.com/prswanter/eidolon-sc)
 
 </div>
 
 ---
 
-Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像打字聊天或者直接打电话。她用日语原声回答，附上中文字幕；能回忆自己在原作里经历过的剧情；还会记住你说过的事，并在偶像之间「传开」。
+## 这是什么
 
-原作八个组合的 **28 位偶像**都已经配好，可以直接对话。部署到公网后，任何人都能用 Google 或 GitHub 登录使用。
+上游 Eidolon-SC 面向**公网多用户**：OAuth 登录、按用户限流、异地加密备份、Caddy 自动 HTTPS，一套 compose 上去就是给所有人用的站点。
 
-> [!IMPORTANT]
-> 本项目是非官方的粉丝作品，与万代南梦宫及《偶像大师》系列的版权方无关，角色由 AI 扮演。剧情数据**不随仓库分发**，需要自行准备（[ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)）；角色会通过回复间接地把剧情内容提供给登录的用户，这一风险见 [ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)。
+这个分支的出发点不一样：**给一台 Windows 台式机上的局域网自用**。同一套代码，改成本机跑、手机在内网连、立绘素材放本机对象存储、模型凭证全留在 `.env` 里。在这个基础上又加了三个上游没有的功能（设置里的「关于我」，以及左侧栏的「人设卡」「回复格式」两个编辑页）。
 
-## 📸 预览
+所以本文件只讲**和原版有什么不同**。产品定位、视觉规范、架构决策上游写得很完整，直接看原文：
 
-<p align="center">
-  <img src="docs/images/call-demo.webp" alt="和真乃通话：她听懂中文，用日语原声回答，立绘随情绪换表情" width="100%">
-  <br>
-  <sub>打电话给真乃：你说中文，她用日语原声回答，字幕同步，立绘按每段话的情绪换表情</sub>
-</p>
+- [上游 README](https://github.com/Sallyn0225/eidolon-sc/blob/main/README.md)（本仓库的 `README.en.md` / `README.ja.md` 仍是上游原文，没改）
+- [`PRODUCT.md`](PRODUCT.md) · [`DESIGN.md`](DESIGN.md) · [`docs/adr/`](docs/adr/) · [`GLOSSARY.md`](GLOSSARY.md)
 
-<table>
-  <tr>
-    <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/app-dark.webp">
-        <img src="docs/images/app-light.webp" alt="对话页：恋鐘想起了对灯織说过的猫">
-      </picture>
-      <p align="center"><sub><b>跨角色共享记忆</b>：只对灯織说过养了猫，恋鐘却说「灯織から聞いたばい」</sub></p>
-    </td>
-    <td width="50%">
-      <img src="docs/images/outfits.webp" alt="换衣装面板">
-      <p align="center"><sub><b>换衣装</b>：原作的每张卡都能穿，私服和演出服可以切换</sub></p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <img src="docs/images/photo.webp" alt="对话页：めぐる发来一张照片">
-      <p align="center"><sub><b>她发照片</b>：开口要，她按自己的样子和当时的情境拍一张</sub></p>
-    </td>
-    <td width="50%">
-      <img src="docs/images/gifts.webp" alt="礼物页：抽奖台、重置卡和背包里的礼物">
-      <p align="center"><sub><b>礼物</b>：每天抽奖，挑她喜欢的送</sub></p>
-    </td>
-  </tr>
-</table>
+## 与原版的区别
 
-<table>
-  <tr>
-    <td width="33%"><img src="docs/images/phone-list.webp" alt="手机上的对话列表"></td>
-    <td width="33%"><img src="docs/images/phone-chat.webp" alt="手机上的对话"></td>
-    <td width="33%"><img src="docs/images/phone-call.webp" alt="手机上的通话层"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>对话列表：按最近往来排序，可以搜中文译名、假名、罗马字和组合名</sub></td>
-    <td align="center"><sub>每句日语都附中文字幕</sub></td>
-    <td align="center"><sub>手机上的通话层占满全屏</sub></td>
-  </tr>
-</table>
+### 一、部署形态：公网多用户 → 本机局域网
 
-<details>
-<summary><b>落地页</b>：一束白光散成 28 种印象色，每一道是一位偶像</summary>
+| 项目 | 原版 | 本分支 |
+|---|---|---|
+| 入口 | Caddy 自动 HTTPS + 域名 | Caddy 8443 自签证书，直接 `https://<局域网IP>:8443`，设备各装一次根证书 |
+| 登录 | Google / GitHub OAuth | `EIDOLON_DEV_LOGIN=1` 开发登录（OAuth 代码没动，配好即可切回） |
+| 通话穿透 | 公网 TURN（域名 + 证书） | 本机 coturn，`--external-ip` 读 `EIDOLON_TURN_EXTERNAL_IP`，手机在内网也能双向语音 |
+| 立绘素材 | 对象存储 + CDN | 本机 MinIO + Caddy `handle_path /stands/*` 同源反代，避开混合内容与 CORS |
+| 跨域 | 只允许自己的域名 | `EIDOLON_EXTRA_ORIGINS` 放行 `localhost:3000` 与局域网 IP |
+| 容器 | caddy / frontend / backend / coturn | 同上 **+ minio**，共五个 |
+| 剧情库 | 服务器定时同步 | 本机 `corpus/` 挂进容器（可写，`stand fetch` 要往里写），手动跑同步 |
+| 判断模型 | 按部署情况选 | 固定 Cloudflare `clef-flash`（开着好感度时百炼不适用，见 [`docs/configuration.md`](docs/configuration.md)） |
 
-<br>
+### 二、新增功能（上游没有）
 
-<img src="docs/images/landing-tour.webp" alt="落地页的滚动叙事" width="100%">
+**1. 设置 →「关于我」** — 制作人档案里多一个 500 字自由文本框，内容每轮都跟着提示词走，当作「她本来就知道的事」。存 `producer_profiles.about`（启动时自动补列迁移），随数据包导出，数据包格式 `FORMAT 2 → 3`。
 
-</details>
+**2. 左侧栏 →「人设卡」** — 在浏览器里直接改 `characters/sheets/<id>.md` 并保存，写盘后**原地刷新**后端内存里的角色表，下一轮对话即生效，不用重启容器。先写 `.tmp` 再 `os.replace`，写坏了不会留半份文件。
 
-## ✨ 特性
+**3. 左侧栏 →「回复格式」** — 编辑 `<ja>/<zh>` 分段提示词的三段内容（`format` / `cues` / `directed_cues`），覆盖存 `/data/reply_format.json`，每轮现读，读不到或坏了就回落到代码里的默认值。保存时校验三个标签缺一不可——解析器硬依赖它们，缺了整句会丢。可一键恢复默认。
 
-**和她说话**
+两个编辑页都**只要登录、不要管理员**：本机 `EIDOLON_ADMINS` 是空的，admin 路由一律 404，套上去就没人能进。路由在 `backend/src/eidolon/prompt_editor_api.py`（5 个），页面在 `frontend/src/app/(app)/(nav)/sheets|reply-format/`。
 
-- 🎙️ **实时语音通话**：基于 WebRTC 的全双工通话，中文、日语都能说，随时可以插话打断她。
-- 🇯🇵 **日语原声 + 中文字幕**：她用日语回答，保留口癖，每句附中文字幕（[ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)）；专有名词按读音表念对。
-- 🎭 **会动的立绘**：通话时叠上原作的 Spine 立绘，会呼吸、眨眼、动嘴，随情绪换表情。原作出了新卡，每周同步一次就能穿。
-- 📷 **她发照片**：你开口要，她按自己的样子和当时的情境拍一张发来，只有全年龄的内容（[配置指南](docs/configuration.md#照片)）。
-- 💗 **好感度和礼物**：你说的话会让她亲近或疏远你，冒犯多了她会挂断电话、结束这段对话。每天抽奖得到礼物送给她，她会回应。
-- 💌 **搭话**：你一阵子没来，她会在对话里先说几句；越亲近来得越早（[配置指南](docs/configuration.md#搭话)）。
+### 三、工具与脚本
 
-**她记得什么**
+原版只有部署用的 `deploy/*.sh` 和 `scripts/setup-oauth.sh`，本分支补了一套本机运维的东西：
 
-- 📖 **回忆原作剧情**：导入剧情库后，她只回忆**自己出场过**的正式经历。
-- 🔄 **与原作同步**：一条命令同步粉丝汉化和日语原文，新卡、新活动一周内就能回忆；歌曲和演出也写进她的世界设定。
-- 🧠 **跨角色共享记忆**：对灯織说过的事，恋鐘也会知道，并以「听灯織说……」的口吻提起（[ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)）。她记住的事你都能查看和删除。
-- 🗂️ **历史对话**：随时开新对话，旧的留着翻看，不要了可以删。
-- 🪪 **制作人档案**：称呼、性别、时区和生日都能在设置里改；生日当天她会祝你生日快乐。
-- 📊 **统计**：看你和她们聊了多少回合、通了多久电话、送了多少礼物，可以导出一张分享图。
-- ⚡ **按需检索**：先判断这句话要不要查资料，寒暄闲聊没有额外延迟。
-
-**部署和运营**
-
-- 👥 **对公众开放**：Google 或 GitHub 登录，按用户限流，记忆互相隔离；用户可以彻底删除自己的数据，数据库每天加密备份到异地。
-- 📦 **数据包**：对话、照片、记忆和制作人档案导出成一个 zip，在别的部署导入后接着用；好感度和礼物不随行（[ADR-0025](docs/adr/0025-data-packages-leave-affinity-and-gifts-behind.md)）。
-- 🔑 **自带密钥**：用户可以填自己的 LLM、语音合成、语音识别和生图密钥，用自己的额度，满足条件时不占限额（[配置指南](docs/configuration.md#自带密钥)）。密钥只存在浏览器里（[ADR-0017](docs/adr/0017-own-api-keys-stay-in-the-browser.md)）。
-- 🛠️ **后台**：看用量、花费和进行中的通话，改模型和限额不用重启，封禁用户、发公告；看不到任何人的对话和记忆。
-- 🚦 **服务状态**：用户在对话列表就能看到各项服务正不正常。
-- 🔌 **服务可以替换**：模型支持 OpenAI Chat Completions、Responses 和 Anthropic Messages 三种接口；语音识别、向量化各有两家可选，判断模型有三家；每项服务都可以单独走网络代理。
-- 🚀 **一键部署**：Docker Compose 生产配置，自带 Caddy（自动 HTTPS）和 coturn（TURN 中继）；CI 构建镜像并发布到 GHCR。
-
-## 🚀 快速开始
-
-需要 Docker 与 Docker Compose，以及一个支持流式输出和工具调用的对话模型。
-
-```sh
-git clone https://github.com/Sallyn0225/eidolon-sc.git && cd eidolon-sc
-cp .env.example .env    # 填写 CHAT_LLM_BASE_URL、CHAT_LLM_API_KEY、CHAT_LLM_MODEL，再加一行 EIDOLON_DEV_LOGIN=1
-docker compose up --build
-```
-
-打开 <http://localhost:3000> 是落地页。点右上角的「登录」，在登录面板里选「开发登录」，随便填一个名字，同意隐私政策和使用条款、声明年满 13 岁后就进入对话列表，点一位偶像开始对话。
-
-只填对话模型时能文字聊天。按需再补上其他服务的密钥，逐步开启语音通话、剧情回忆、记忆和立绘：
-
-| 功能 | 需要的配置 |
+| 文件 | 干什么 |
 |---|---|
-| 文字对话 | `CHAT_LLM_*` |
-| 语音通话 | `FISH_AUDIO_API_KEY`，加语音识别的 key：`SONIOX_API_KEY`（默认）或阿里云百炼的 `DASHSCOPE_API_KEY` |
-| 剧情库 | 向量化的 key：`SILICONFLOW_API_KEY`（默认）或 `GEMINI_API_KEY` |
-| 检索与记忆 | 向量化的 key、`SILICONFLOW_API_KEY`（重排），加判断模型：`JEV_API_KEY`（默认）、Cloudflare 或阿里云百炼的凭证 |
-| 照片 | 判断模型，加生图的 key：`NOVELAI_API_KEY` |
-| 立绘与招呼 | `EIDOLON_STAND_ASSETS_URL` 和存放素材的存储桶 |
+| `deploy/patches/0001~0005` | 本机改造拆成**一个文件一个补丁**（config / sessions / compose / Caddyfile.local / .gitignore） |
+| `scripts/apply-local-patches.sh` | 循环打补丁（反向检测判「已应用」）+ 体检 `.env` 与证书 SAN，`--check` 只看不干 |
+| `deploy/local-tls/gen-certs.sh <IP>` | 生成自签 CA + 服务端证书（825 天；CA 存在就复用，换 IP 重签设备不用重新信任） |
+| `scripts/trust-local-ca.sh` | 把自签根证书装进当前用户证书库（`certutil -user`，免管理员），装完体检信任状态 |
+| `scripts/stand-sync-local.sh` | 容器版立绘四步 `fetch → outfits → thumbnails → upload`，`fetch` 断线自愈（按日志判失败，不看退出码） |
+| `scripts/enable-retrieval.sh` | 检索链路一条命令开起来：校验 key → force-recreate → 等就绪 → `story sync` 带重试 → 体检 |
+| `scripts/check-cloudflare-judge.sh` | 填 `.env` 之前先验 Cloudflare token / account / 权限 / 模型 |
+| `frontend/scripts/diag-*.mts` | 三个无头浏览器诊断：立绘素材能不能取到、换衣装面板里有几张卡、设置页「关于我」的渲染 |
 
-每项怎么配、配了以后有什么效果，见 **[配置指南](docs/configuration.md)**；所有环境变量的说明见 [`.env.example`](.env.example)。
+### 四、没有改的部分
 
-## 🧩 架构
+对话引擎、检索、记忆、语音管线、通话层、后台、落地页——**一律是上游原样**。这个分支只碰部署外围和上面那三个界面功能。
 
-```mermaid
-flowchart LR
-    subgraph Browser["浏览器 · Next.js"]
-        Landing["落地页"]
-        UI["对话列表 · 对话 · 通话层"]
-        Admin["后台"]
-    end
+## 和上游的版本关系
 
-    subgraph Backend["后端 · FastAPI + Pipecat"]
-        API["HTTP API"]
-        Call["通话管线"]
-        Engine["对话引擎"]
-        Retrieval["检索"]
-        Memory["记忆"]
-        DB[("SQLite<br/>对话 · 照片 · 记忆 · 剧情库")]
-    end
+- 当前基线：上游 **`09dd9fa`**（2026-10-20 03:29Z，PR #152 好感度判断评测）
+- 同步方式：**快照 + 补丁重放**，不走 `git merge`。每个上游版本在本地留 tag：`upstream-2026-10-18`、`upstream-2026-10-20`；本机版本留 `local-2026-10-20`、`local-2026-10-20-main`
+- 上游之后又走了 14 个提交，本分支**尚未合入**：
+  - PR #153 **看板汇总表**：看板改读 15 分钟粒度预汇总表，耗时 1.4–3.5s → 0.05–0.19s
+  - PR #155 **每日任务**：每天三项小事（任一角色一回合 / 送出一份礼物 / 共 10 回合），各多得一次抽奖
 
-    Bucket[("对象存储<br/>立绘 · 招呼")]
+合入上游新版时注意：那两个 PR 改的 `frontend/src/lib/navShell.ts`、`AppNav.tsx`、`i18n/zh.ts`、`lib/api.ts`、`theme/icons.ts`，正好是本分支加「人设卡」「回复格式」时也动过的同一批文件，会产生冲突。
 
-    UI -- "文字回合 /api/*" --> API
-    Admin --> API
-    UI <-- "WebRTC 语音 + 字幕" --> Call
-    Landing & UI -. "立绘、招呼音频" .-> Bucket
-    API --> Engine
-    Call -- "语音识别<br/>Soniox 或阿里云百炼" --> Engine
-    Engine -- "Fish Audio 语音合成<br/>（带读音表）" --> Call
-    Engine --> Retrieval
-    Engine --> Memory
-    Retrieval --> DB
-    Memory --> DB
-    Engine <--> ChatLLM["对话模型"]
-    Retrieval <--> Judge["判断模型<br/>Jev、Clef 或阿里云百炼"]
-    Retrieval <--> Emb["向量化<br/>Qwen3-Embedding 或 Gemini"]
-    Retrieval <--> SF["硅基流动<br/>Qwen3-Reranker"]
-    Memory <--> BgLLM["后台模型"]
-    Engine <--> Image["生图<br/>NovelAI"]
+## 在本机跑起来
+
+前提：Windows + Docker Desktop，`.env` 里至少有对话模型的 `CHAT_LLM_*`。
+
+```sh
+# 1. 配置
+cp .env.example .env          # 填 CHAT_LLM_BASE_URL / CHAT_LLM_API_KEY / CHAT_LLM_MODEL
+                              # 再加 EIDOLON_DEV_LOGIN=1、EIDOLON_TURN_EXTERNAL_IP=<本机局域网IP>
+                              # 立绘需要 EIDOLON_STAND_ASSETS_URL=https://<IP>:8443/stands/eidolon-stand
+
+# 2. 自签证书（只需一次；换 IP 再跑，CA 会复用）
+deploy/local-tls/gen-certs.sh <本机局域网IP>
+
+# 3. 起服务
+docker compose up --build -d
+
+# 4. 让浏览器信任自签 CA（免管理员，只影响当前用户）
+scripts/trust-local-ca.sh
 ```
 
-- 打字和说话走**同一个对话引擎**，写进同一条对话记录；通话只是在引擎外面包了一层语音识别和语音合成。
-- 对话模型以 `<ja>…</ja><zh>…</zh>` 的分段格式流式输出，日语一到就送去合成，不用等整段回复结束。
+然后开 <http://localhost:3000>，登录面板里选「开发登录」，同意条款后进对话列表。手机访问 `https://<IP>:8443` 前要先装一次根证书（页面上有下载入口）。
 
-## 📚 文档
+立绘要先把素材灌进本机 MinIO：
 
-| 文档 | 内容 |
+```sh
+scripts/stand-sync-local.sh        # fetch → outfits → thumbnails → upload，断线自动重试
+```
+
+剧情回忆要自备剧情库（**不随仓库分发**）：把 `SCTranslationData` 放进 `corpus/`，配好 `SILICONFLOW_API_KEY`，再跑 `scripts/enable-retrieval.sh`。
+
+### 本分支多出来的环境变量
+
+| 变量 | 作用 |
 |---|---|
-| [配置指南](docs/configuration.md) | 模型、角色、通话、立绘、剧情库、检索、记忆、照片、登录、自带密钥、网络代理、服务状态、后台的配置和效果 |
-| [部署指南](docs/deploy.md) | 部署到 VPS：域名、防火墙、OAuth、剧情库每周同步、立绘与招呼素材、升级、备份与恢复、排障 |
-| [`.env.example`](.env.example) | 全部环境变量及说明 |
-| [架构决策记录](docs/adr/) | 为什么这样设计：日语原声、共享记忆、对公众开放、自带密钥只存在浏览器里等 |
-| [`GLOSSARY.md`](GLOSSARY.md) | 领域术语表 |
-| [`DESIGN.md`](DESIGN.md) · [`PRODUCT.md`](PRODUCT.md) | 视觉规范 · 产品定位 |
+| `EIDOLON_TURN_EXTERNAL_IP` | coturn 的对外 IP，填本机局域网地址（compose 里是必填项） |
+| `EIDOLON_EXTRA_ORIGINS` | 额外放行的来源，逗号分隔，如 `http://localhost:3000,https://10.0.0.2:8443` |
 
-## 🌐 部署
+其余变量全部沿用上游，见 [`.env.example`](.env.example) 与 [`docs/configuration.md`](docs/configuration.md)。
 
-生产配置 [`docker-compose.prod.yml`](docker-compose.prod.yml) 包含 caddy（HTTPS 入口）、frontend、backend 和 coturn（TURN 中继）四个服务，前后端镜像由 CI 发布到 GHCR：
+## 已知限制
 
-```sh
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
-```
+- **单机单实例**：SQLite + 本机 MinIO，没有并发和容灾设计，服务的是「自己家的人」。
+- **自签证书**：每台设备要单独信任一次；证书过期或换 IP 后要重新装。
+- **没有后台权限**：`EIDOLON_ADMINS` 为空，`/admin` 下所有路由 404（有意为之，不是坏了）。
+- **落后上游两个 PR**（见上）：每日任务、看板汇总表在本分支里没有。
+- **剧情数据、角色音色、立绘素材都不在仓库里**，要自己准备。
+- **`.claude/skills/*` 那批软链接在仓库里显示为删除**：Windows 上 `core.symlinks=false`，解包时被展开成了目录副本，git 只认到原链接消失。纯开发工具的事，不影响运行。
 
-数据库由 `deploy/db-backup.sh` 每天加密备份到私有存储桶，默认保留 30 天。完整步骤见 [部署指南](docs/deploy.md)。
+## 许可证
 
-## 💻 开发
+代码沿用上游：**GNU Affero General Public License v3.0 或更高版本**（[LICENSE](LICENSE)）。这个分支同样适用——若把改过的版本部署到公网给别人用，需要向这些用户提供你修改后的源码。
 
-**后端**（Python 3.11+，`backend/`，用 [uv](https://docs.astral.sh/uv/)）：
+以下内容不在许可证范围内，也不在本仓库里：
 
-```sh
-cd backend
-uv sync
-uv run pytest && uv run pyright && uv run ruff check
-uv run --env-file=../.env eidolon serve   # 启动在 :8000，读取 ../characters/characters.toml
-```
-
-**前端**（Next.js 16 + [shadcn/ui](https://ui.shadcn.com/) + Tailwind CSS v4，`frontend/`）：
-
-```sh
-cd frontend
-npm install
-npm run typecheck && npm test && sh scripts/check-discipline.sh
-npm run build && BACKEND_URL=http://localhost:8000 npm run start   # 启动在 :3000，/api/* 转发给后端
-```
-
-- **界面**：克制的 LINE 风格，属于她的地方用她的印象色；落地页自成一个永远深色的视觉世界（[ADR-0016](docs/adr/0016-landing-page-is-its-own-visual-world.md)）。视觉规范见 [`DESIGN.md`](DESIGN.md)，组件写法的约定见 [`frontend/AGENTS.md`](frontend/AGENTS.md)。
-- **立绘**：要看立绘时，前端也要带上和 `.env` 一样的 `EIDOLON_STAND_ASSETS_URL`。
-- **README 的截图**：前后端都跑起来后，在 `frontend/` 下运行 `npm run readme-media`，会重新拍下 `docs/images/` 里的截图和动图。
-- **CI**：每个 PR 和 main 上的推送都由 GitHub Actions 跑上面这些检查和 shellcheck，再构建两个镜像；推送到 main 或 `v*` 标签时发布到 GHCR。Dependabot 每周一提依赖更新。
-
-## 📁 项目结构
-
-```text
-eidolon-sc/
-├── backend/          # Python 后端：FastAPI + Pipecat；对话引擎、通话、检索、记忆、同步与命令行（eidolon）
-│   ├── src/eidolon/
-│   ├── eval/         #   重排、判断模型和记忆的评测集（只含问题与标注，不含剧情原文）
-│   └── tests/
-├── frontend/         # Next.js 前端：落地页、对话、通话层、设置、后台
-├── characters/       # 角色配置、人设、资料、头像、读音表、世界设定
-├── corpus/           # 剧情数据和镜像缓存（不进仓库）
-├── deploy/           # Caddyfile、剧情库与立绘的同步脚本、数据库备份脚本
-├── scripts/          # 配置 OAuth 应用的向导（setup-oauth.sh）
-├── docs/             # 配置指南、部署指南、架构决策记录、README 的图片
-├── docker-compose.yml          # 本地开发
-└── docker-compose.prod.yml     # 生产部署
-```
-
-## 📄 许可证
-
-本项目的代码以 [GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）或（由你选择）任何更高版本发布。如果你修改了本项目并通过网络向他人提供服务，需要向这些用户公开修改后的源代码。
-
-许可证只覆盖仓库里的代码和文档，下面这些不在范围内：
-
-- **原作的内容**：剧情数据、角色音色、立绘素材不在仓库中，使用时须遵守各自来源的条款（ADR-0003）。仓库里的人设、角色资料、头像和 README 的截图里，角色与设定属于原作版权方。
-- **Spine Runtimes**：通话层立绘用的 [`frontend/public/vendor/spine-3.6/`](frontend/public/vendor/spine-3.6/README.md) 原样收录，适用它自己的 Spine Runtimes 许可证（[ADR-0009](docs/adr/0009-spine-runtime-without-editor-license.md)）。[`LICENSING.md`](LICENSING.md) 里有一条 AGPL 第 7 节的附加许可，允许两者组合分发。
-- **字体和音效**：落地页的字体子集适用 SIL Open Font License（见 `frontend/src/app/(landing)/fonts/`）；通话音效的来源和许可见 [`CREDITS.md`](frontend/public/sounds/CREDITS.md)。
-
-## 🙏 致谢
-
-- [LAPLACE Eidolon](https://laplace.live/eidolon)：为虚拟主播明前奶绿打造的实时语音 AI 分身，本项目的架构参考（未复用其代码）
-- [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData)：剧情文本与中文翻译
-- [ShinyColorsDB](https://github.com/ShinyColorsDB)：原文剧情的镜像与立绘素材
-- [Pipecat](https://github.com/pipecat-ai/pipecat)：实时语音管线与 WebRTC 传输
-- [Fish Audio](https://fish.audio/)：语音合成
-- [Soniox](https://soniox.com/)、[阿里云百炼](https://www.aliyun.com/product/bailian)：语音识别
-- [硅基流动](https://siliconflow.cn/)：Qwen3 Embedding 与 Reranker
-- [Google Gemini API](https://ai.google.dev/)：Gemini Embedding（可选的向量化服务）
-- [TypeSafe Jev](https://docs.typesafe.ai/)、[OpenRouter](https://openrouter.ai/)、[Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/)、[阿里云百炼](https://help.aliyun.com/zh/model-studio/decision-model-api)：判断模型
-- [Spine Runtimes](https://github.com/EsotericSoftware/spine-runtimes)：立绘的播放（spine-ts 3.6）
-- [im@sparql](https://sparql.crssnky.xyz/imas/)、Lantis、ふじわらはじめ、imas-db、wikiwiki：世界设定里的偶像、唱片和演出资料
+- **原作的内容**：剧情数据、角色音色、立绘素材，使用时须遵守各自来源的条款（[ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)）
+- **Spine Runtimes**：`frontend/public/vendor/spine-3.6/` 原样收录，适用它自己的许可证（[LICENSING.md](LICENSING.md)）
+- **字体和音效**：见 `frontend/src/app/(landing)/fonts/` 与 `frontend/public/sounds/CREDITS.md`
 
 <div align="center">
 
 ---
 
-<sub>《偶像大师 闪耀色彩》及其角色的版权归 ©Bandai Namco Entertainment Inc. 所有。本项目为非官方粉丝作品，与版权方无关，角色由 AI 扮演。</sub>
+<sub>《偶像大师 闪耀色彩》及其角色的版权归 ©Bandai Namco Entertainment Inc. 所有。本项目为非官方粉丝作品，与万代南梦宫及版权方无关，角色由 AI 扮演。</sub>
+
+<sub>上游作者：[Sallyn0225](https://github.com/Sallyn0225) · 致谢名单见 [上游 README](https://github.com/Sallyn0225/eidolon-sc/blob/main/README.md)</sub>
 
 </div>

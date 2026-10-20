@@ -2,7 +2,7 @@
 
 数据包（`GLOSSARY.md`「数据包」）是用户在设置的「数据包」里导出的一个 zip：他自己的数据，带到这个部署或别的部署导入，接着用。它不是备份，也没有加密，是用户自己保管的明文。这份说明给别的部署者和以后的版本看：每个键的意思和版本规则。为什么好感度和礼物不在里面，见 ADR-0025。
 
-现在的格式是**第 2 版**。第 2 版在对话里加了她的搭话（`reach_outs`），别的和第 1 版一样。
+现在的格式是**第 3 版**。第 3 版在制作人档案里加了「关于我」（`about`），第 2 版在对话里加了她的搭话（`reach_outs`），别的和第 1 版一样。第 3 版导出时总会带上 `about`（没写就是 `null`），读到第 1、2 版的包时这一项当作没写。
 
 ## zip 里有什么
 
@@ -18,7 +18,7 @@
 
 ```json
 {
-  "format": 2,
+  "format": 3,
   "exported_at": "2026-10-19T08:00:00.000000+00:00",
   "categories": ["conversations", "photos", "memories", "profile"],
   "counts": { "conversations": 12, "photos": 3, "memories": 40, "profile": 1 }
@@ -43,7 +43,8 @@
     "gender": "female",
     "timezone": "Asia/Tokyo",
     "birthday_month": 2,
-    "birthday_day": 29
+    "birthday_day": 29,
+    "about": "在做影像制作，常常熬夜。"
   }
 }
 ```
@@ -52,6 +53,7 @@
 - `gender`：`"male"`、`"female"` 或 `null`（和原作一致，男性）。
 - `timezone`：IANA 时区名；`null` 是跟着设备。
 - `birthday_month`、`birthday_day`：生日的月和日，没有年；要么都有、要么都是 `null`。2 月 29 日可以。
+- `about`：制作人自己写的一段介绍，最多 500 个字，换行照原样留着；`null` 是没有写。第 3 版才有这一项。
 
 导入时勾了「制作人档案」就整份覆盖：包里是 `null` 的项，这里也清空、沿用默认。和这里现有的一模一样时不算导入了档案。
 

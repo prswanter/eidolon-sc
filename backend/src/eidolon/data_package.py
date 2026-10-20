@@ -51,6 +51,7 @@ from eidolon.memory import (
     add_carried,
 )
 from eidolon.producer import (
+    MAX_ABOUT_LENGTH,
     MAX_FORM_OF_ADDRESS_LENGTH,
     Birthday,
     Gender,
@@ -73,9 +74,10 @@ from eidolon.store import (
     write_profile,
 )
 
-FORMAT = 2
+FORMAT = 3
 """The newest format this version reads, and the one it exports. Changing the format adds
-one to it, and keeps reading the older ones: 2 added her reach-outs (`reach_outs`)."""
+one to it, and keeps reading the older ones: 2 added her reach-outs (`reach_outs`), 3 added
+the producer's own introduction (`about`)."""
 
 REACH_OUTS_SINCE = 2
 """The format whose conversations first held her reach-outs: before it, none may."""
@@ -165,6 +167,8 @@ class PackagedProfile(_Strict):
     (`producer.effective_timezone`)."""
     birthday_month: int | None
     birthday_day: int | None
+    about: Annotated[str, Field(max_length=MAX_ABOUT_LENGTH)] | None = None
+    """What the producer wrote about themselves; not in packages from before it."""
 
     @model_validator(mode="after")
     def _birthday(self) -> "PackagedProfile":
@@ -184,6 +188,7 @@ class PackagedProfile(_Strict):
             timezone=profile.timezone,
             birthday_month=birthday and birthday.month,
             birthday_day=birthday and birthday.day,
+            about=profile.about,
         )
 
     def profile(self) -> ProducerProfile:
@@ -193,7 +198,11 @@ class PackagedProfile(_Strict):
             else None
         )
         return ProducerProfile(
-            self.form_of_address or None, self.gender, self.timezone or None, birthday
+            self.form_of_address or None,
+            self.gender,
+            self.timezone or None,
+            birthday,
+            self.about or None,
         )
 
 

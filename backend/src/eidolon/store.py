@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS producer_profiles (
     timezone TEXT,
     updated_at TEXT NOT NULL,
     birthday_month INTEGER,
-    birthday_day INTEGER
+    birthday_day INTEGER,
+    about TEXT
 );
 -- `title` is its conversation title (`titles`), NULL until it is named, if ever.
 CREATE TABLE IF NOT EXISTS conversations (
@@ -511,6 +512,7 @@ class Store:
             self._db.execute("UPDATE users SET name = id")
         self._add_missing_columns("users", ("consented_at", "banned_at", "ban_note"), "TEXT")
         self._add_missing_columns("producer_profiles", ("birthday_month", "birthday_day"), "INTEGER")
+        self._add_missing_columns("producer_profiles", ("about",), "TEXT")
         self._add_missing_columns("messages", ("affinity",), "TEXT")
         self._add_missing_columns("messages", ("hurt",), "REAL")
         self._add_missing_columns("messages", ("out_of_line",), "INTEGER")
@@ -795,7 +797,7 @@ class Store:
         """The user's producer profile; all defaults until they save one."""
         with self._lock:
             row = self._db.execute(
-                "SELECT form_of_address, gender, timezone, birthday_month, birthday_day"
+                "SELECT form_of_address, gender, timezone, birthday_month, birthday_day, about"
                 " FROM producer_profiles WHERE user_id = ?",
                 (user_id,),
             ).fetchone()
@@ -806,7 +808,9 @@ class Store:
             if row["birthday_month"] is not None and row["birthday_day"] is not None
             else None
         )
-        return ProducerProfile(row["form_of_address"], row["gender"], row["timezone"], birthday)
+        return ProducerProfile(
+            row["form_of_address"], row["gender"], row["timezone"], birthday, row["about"]
+        )
 
     def save_profile(self, user_id: str, profile: ProducerProfile) -> None:
         with self._lock, self._db:
@@ -1500,11 +1504,12 @@ def write_profile(db: sqlite3.Connection, user_id: str, profile: ProducerProfile
     birthday = profile.birthday
     db.execute(
         "INSERT INTO producer_profiles"
-        " (user_id, form_of_address, gender, timezone, birthday_month, birthday_day,"
-        " updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        " (user_id, form_of_address, gender, timezone, birthday_month, birthday_day, about,"
+        " updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         " ON CONFLICT (user_id) DO UPDATE SET form_of_address = excluded.form_of_address,"
         " gender = excluded.gender, timezone = excluded.timezone,"
         " birthday_month = excluded.birthday_month, birthday_day = excluded.birthday_day,"
+        " about = excluded.about,"
         " updated_at = excluded.updated_at",
         (
             user_id,
@@ -1513,6 +1518,7 @@ def write_profile(db: sqlite3.Connection, user_id: str, profile: ProducerProfile
             profile.timezone,
             birthday and birthday.month,
             birthday and birthday.day,
+            profile.about,
             _now(),
         ),
     )

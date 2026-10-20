@@ -1,0 +1,29 @@
+# 本机局域网 HTTPS：给手机访问用（iOS 的麦克风只在 HTTPS 下开放）。
+# 证书是 deploy/local-tls 里自签的，手机装一次 ca.crt 并信任即可，全程不出公网。
+#
+# 用 https://:8443 通配监听，而不是写 https://10.34.31.40:8443：
+# Safari 访问 IP 地址时不发 SNI，写死主机名的站点会握手失败（TLS alert 80）。
+{
+	admin off
+	auto_https off
+}
+
+https://:8443 {
+	tls /certs/server.crt /certs/server.key
+
+	# 立绘素材：走同源路径，页面就不用为存储桶配跨域，也不会出现 HTTPS 页面加载 HTTP 素材。
+	# 对应 .env 的 EIDOLON_STAND_ASSETS_URL=https://<IP>:8443/stands/eidolon-stand
+	handle_path /stands/* {
+		reverse_proxy minio:9000
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}
+
+# 供手机下载根证书：http://10.34.31.40:8080/ca.crt
+http://:8080 {
+	root * /srv
+	file_server
+}
