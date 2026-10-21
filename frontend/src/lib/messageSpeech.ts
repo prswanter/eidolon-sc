@@ -40,12 +40,20 @@ export function speechState(): SpeechState {
   return state;
 }
 
-export function stopSpeech() {
-  if (audio) {
-    audio.pause();
-    audio.src = "";
-    audio = null;
+/** 放下现在这条播放器：先把 `audio` 摘空，再清 src。清 src 会让浏览器异步发一次 error
+ *（「没有可用的源」），那几个回调都先看自己还是不是当前这条，不是就不作声——不然一次
+ * 正常播完（`ended` → `stopSpeech`）也会在气泡下面留下「没能念出来」。 */
+function dropAudio() {
+  const element = audio;
+  audio = null;
+  if (element) {
+    element.pause();
+    element.src = "";
   }
+}
+
+export function stopSpeech() {
+  dropAudio();
   if (objectUrl) {
     URL.revokeObjectURL(objectUrl);
     objectUrl = null;
@@ -55,11 +63,7 @@ export function stopSpeech() {
 
 /** 放不下去：收起播放器，把原因留在状态里。 */
 function fail(messageId: number, reason: string) {
-  if (audio) {
-    audio.pause();
-    audio.src = "";
-    audio = null;
-  }
+  dropAudio();
   if (objectUrl) {
     URL.revokeObjectURL(objectUrl);
     objectUrl = null;
@@ -113,8 +117,17 @@ export async function toggleSpeech(messageId: number, failed: string, userId: st
   objectUrl = url;
   const element = new Audio(url);
   audio = element;
-  element.addEventListener("playing", () => publish({ messageId, phase: "playing" }));
-  element.addEventListener("ended", stopSpeech);
-  element.addEventListener("error", () => fail(messageId, failed));
-  void element.play().catch(() => fail(messageId, failed));
+  // 每个回调都认一下自己是不是还在这条上：换了一条、或者已经收起了，就不再动状态。
+  element.addEventListener("playing", () => {
+    if (audio === element) publish({ messageId, phase: "playing" });
+  });
+  element.addEventListener("ended", () => {
+    if (audio === element) stopSpeech();
+  });
+  element.addEventListener("error", () => {
+    if (audio === element) fail(messageId, failed);
+  });
+  void element.play().catch(() => {
+    if (audio === element) fail(messageId, failed);
+  });
 }

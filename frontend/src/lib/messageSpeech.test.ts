@@ -38,16 +38,27 @@ function serve(...answers: Answer[]) {
   });
 }
 
-/** An <audio> that only records what it was told, saying it plays as soon as it is. */
+/** An <audio> that only records what it was told, saying it plays as soon as it is; as a
+ * real one does, saying `error` too when its src is cleared. */
 class FakeAudio {
   static all: FakeAudio[] = [];
-  src: string;
   paused = false;
+  private source: string;
   private readonly listeners = new Map<string, (() => void)[]>();
 
   constructor(src: string) {
-    this.src = src;
+    this.source = src;
     FakeAudio.all.push(this);
+  }
+
+  get src() {
+    return this.source;
+  }
+
+  set src(next: string) {
+    this.source = next;
+    // 真实浏览器清 src 之后会异步发一次 error，正是它会让人以为「没能念出来」。
+    if (next === "") queueMicrotask(() => this.emit("error"));
   }
 
   addEventListener(type: string, listener: () => void) {
@@ -55,12 +66,21 @@ class FakeAudio {
   }
 
   play() {
-    for (const listener of this.listeners.get("playing") ?? []) listener();
+    this.emit("playing");
     return Promise.resolve();
   }
 
   pause() {
     this.paused = true;
+  }
+
+  /** 假装放完了。 */
+  finish() {
+    this.emit("ended");
+  }
+
+  private emit(type: string) {
+    for (const listener of this.listeners.get(type) ?? []) listener();
   }
 }
 
@@ -130,6 +150,28 @@ describe("toggleSpeech", () => {
 
     expect(requests).toHaveLength(1); // the second click played what was already loaded
     expect(FakeAudio.all[0].paused).toBe(true);
+    expect(speechState()).toBeNull();
+  });
+
+  it("leaves nothing under the bubble once it has finished playing", async () => {
+    storage();
+    serve({});
+
+    await toggleSpeech(7, "没能念出来", "u1");
+    FakeAudio.all[0].finish();
+    await Promise.resolve(); // 清 src 的那次 error 排在这一拍
+
+    expect(speechState()).toBeNull();
+  });
+
+  it("leaves nothing under the bubble when stopped mid-way", async () => {
+    storage();
+    serve({});
+
+    await toggleSpeech(7, "没能念出来", "u1");
+    await toggleSpeech(7, "没能念出来", "u1");
+    await Promise.resolve();
+
     expect(speechState()).toBeNull();
   });
 });
