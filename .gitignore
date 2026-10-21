@@ -32,6 +32,8 @@ deploy/event-names.toml
 /.scratch/_faces/
 /.scratch/photos/prototype/tags/contact_sheet.png
 
+__pycache__/
+
 # 本机自签证书的私钥（含根证书私钥）。证书本身（ca.crt / server.crt）进仓库，
 # 这样重新解压后手机不用重新信任；私钥在仓库外的备份里，丢了根证书私钥手机要重新信任一次。
 deploy/local-tls/*.key

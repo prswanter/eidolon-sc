@@ -175,7 +175,7 @@ def build(
     """The backend `settings` describe, with any of the outside services passed in
     used instead of made. Raises RuntimeError, having opened nothing, if the character
     configuration (her liked gifts and all), the world setting or the gift catalog is broken,
-    or a character is none of its idols."""
+    or a character is none of its idols and none of its staff."""
     characters = load_characters(settings.characters_path)
     gift_catalog = load_gift_catalog(gifts_path(settings.characters_path))
     check_liked_gifts(characters, gift_catalog)
@@ -350,7 +350,8 @@ def build(
         usage, activity, own_keys, cooldown_until=affinities.cooldown_until
     )
     calls = Calls(
-        settings, engine, admissions, own_keys, lambda: config.usage_limits, speech, clock, store
+        settings, engine, admissions, own_keys, lambda: config.usage_limits, speech, clock, store,
+        happenings,
     )
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns
     affinities.on_cooldown(calls.cooled)
