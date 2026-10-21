@@ -79,7 +79,7 @@ youjiwu 的 fork 里另有两件事没跟：
 | `scripts/apply-local-patches.sh` | 循环打补丁（反向检测判「已应用」）+ 体检 `.env` 与证书 SAN，`--check` 只看不干 |
 | `deploy/local-tls/gen-certs.sh <IP>` | 生成自签 CA + 服务端证书（825 天；CA 存在就复用，换 IP 重签设备不用重新信任） |
 | `scripts/trust-local-ca.sh` | 把自签根证书装进当前用户证书库（`certutil -user`，免管理员），装完体检信任状态 |
-| `scripts/stand-sync-local.sh` | 容器版立绘四步 `fetch → outfits → thumbnails → upload`，`fetch` 断线自愈（按日志判失败，不看退出码） |
+| `scripts/stand-sync-local.sh` | 容器版立绘四步 `fetch → outfits → thumbnails → upload`，`fetch` 断线自愈（按日志判失败，不看退出码）；缩略图那步会把容器用的 `/corpus/stand` 换成宿主机路径再传 `--build` |
 | `scripts/enable-retrieval.sh` | 检索链路一条命令开起来：校验 key → force-recreate → 等就绪 → `story sync` 带重试 → 体检 |
 | `scripts/check-cloudflare-judge.sh` | 填 `.env` 之前先验 Cloudflare token / account / 权限 / 模型 |
 | `frontend/scripts/diag-*.mts` | 三个无头浏览器诊断：立绘素材能不能取到、换衣装面板里有几张卡、设置页「关于我」的渲染 |

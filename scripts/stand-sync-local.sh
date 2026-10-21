@@ -57,7 +57,14 @@ run_outfits() {
 
 run_thumbnails() {
   echo "=== 3/4 渲染缩略图（无界面 Chromium，每套一张）==="
-  ( cd frontend && npm run stand:thumbnails ) || {
+  # 这步在宿主机上跑，读的是 .env 里给容器用的 EIDOLON_STAND_BUILD_PATH（/corpus/stand）；
+  # 不换成宿主机的路径时，Node 会把它解析成盘符根下的 E:\corpus\stand，报「没有衣装清单」。
+  build=$(sed -n 's/^EIDOLON_STAND_BUILD_PATH=//p' .env 2>/dev/null | tail -1)
+  build=${build:-/corpus/stand}
+  case "$build" in
+    /corpus/*) build="$(pwd)/corpus/${build#/corpus/}" ;;
+  esac
+  ( cd frontend && npm run stand:thumbnails -- --build "$build" ) || {
     echo "缩略图渲染失败：检查 frontend/node_modules 和 npx playwright install chromium" >&2
     status=1
   }
