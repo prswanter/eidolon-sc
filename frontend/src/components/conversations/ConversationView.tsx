@@ -810,7 +810,7 @@ function Bubbled({
   const speaker = speechId === null ? null : (
     <button
       type="button"
-      onClick={() => toggleSpeech(speechId)}
+      onClick={() => void toggleSpeech(speechId, t.speakFailed)}
       aria-label={speaking ? t.speaking : t.speak}
       aria-pressed={speaking}
       className="shrink-0 pb-0.5 text-muted-foreground transition-colors hover:text-foreground"
@@ -872,6 +872,12 @@ function Bubbled({
           {last && !entry.pending && speaker}
           {last && !entry.pending && time}
         </div>
+        {/* 念不出来的原因写在气泡下面：没配置语音合成时点下去什么也不发生，比报错更难看懂 */}
+        {speechId !== null && speech?.messageId === speechId && speech.phase === "failed" && (
+          <p role="status" className="px-1 text-meta text-destructive">
+            {speech.reason}
+          </p>
+        )}
       </MessageContent>
     </Message>
   );
