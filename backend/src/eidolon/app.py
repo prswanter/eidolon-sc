@@ -33,13 +33,20 @@ from eidolon.engine import ENDED, TurnFailed, TurnJudged, shown
 from eidolon.llm import ChatLLM, ChatMessage, TurnLLMs
 from eidolon.greetings import (
     LANDING_MEMORY_STILL_PATH,
+    FishAudioSettings,
     call_opener_path,
     call_poster_path,
     greeting_path,
     voxels_path,
 )
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
-from eidolon.own_keys import BroughtKeys, CallsUnavailable, UnknownService, named_services
+from eidolon.own_keys import (
+    BroughtKeys,
+    CallsUnavailable,
+    UnknownService,
+    masked_cause,
+    named_services,
+)
 from eidolon.producer import (
     MAX_ABOUT_LENGTH,
     MAX_FORM_OF_ADDRESS_LENGTH,
@@ -218,6 +225,13 @@ class TurnInput(BaseModel):
     """Where pages from before brought their own LLM. Transitional, to be deleted once no
     such page is left open: a turn bringing it is refused, asking for a refresh, rather
     than quietly run on the deployer's key and counted."""
+
+
+class SpeechInput(BaseModel):
+    own_keys: OwnKeysInput | None = None
+    """The user's own keys, which their browser keeps, as a turn or a call brings them: a
+    reply read aloud speaks on the Fish Audio key among them, with the model they chose,
+    when there is one, and on the deployer's otherwise. Keys for other services are ignored."""
 
 
 class CallRequest(BaseModel):
@@ -718,11 +732,16 @@ def create_app(backend: Backend) -> FastAPI:
             data, media_type=mime, headers={"Cache-Control": "private, max-age=31536000"}
         )
 
-    @app.get("/api/messages/{message_id}/speech")
-    async def message_speech(message_id: int, user_id: UserId) -> Response:
-        """Her reply said aloud: voiced the first time the user asks for it, on the
-        deployer's speech synthesis and in her own voice, and kept with the message so that
-        asking again voices nothing; 404 for anyone else's."""
+    @app.post("/api/messages/{message_id}/speech")
+    async def message_speech(message_id: int, body: SpeechInput, user_id: UserId) -> Response:
+        """Her reply said aloud: voiced the first time the user asks for it, in her own
+        voice, and kept with the message so that asking again voices nothing; 404 for
+        anyone else's.
+
+        Whose Fish Audio voices it is answered as a call answers it, from the keys the
+        browser brings: the user's own, with the model they chose, if it brings one, else
+        the deployer's in effect now. A user's own key that fails fails this, saying so with
+        the key masked, and never falls back to the deployer's."""
         speaking = store.message_to_speak(message_id, user_id)
         if speaking is None:
             raise HTTPException(404, "没有这条消息")
@@ -732,7 +751,12 @@ def create_app(backend: Backend) -> FastAPI:
             return Response(
                 data, media_type=mime, headers={"Cache-Control": "private, max-age=31536000"}
             )
-        voice = backend.config.voice
+        brought = body.own_keys.brought() if body.own_keys else BroughtKeys()
+        voice = (
+            FishAudioSettings(brought.tts, brought.tts_model)
+            if brought.tts
+            else backend.config.voice
+        )
         if voice is None:
             raise HTTPException(503, "还没有配置语音合成")
         character_id, ja, conversation_id = speaking
@@ -746,6 +770,9 @@ def create_app(backend: Backend) -> FastAPI:
         try:
             data = await backend.speech.voice_line(voice, said, voice_id)
         except Exception as e:  # voiced or not, the reply itself stays
+            if brought.tts:  # theirs, so it is their key's failure and their key stays masked
+                cause = masked_cause(str(e), brought.tts)
+                raise HTTPException(502, f"语音合成失败了（用的是你自带的密钥）：{cause}") from None
             raise HTTPException(502, f"语音合成失败了：{e}") from e
         store.keep_message_speech(message_id, conversation_id, "audio/mpeg", data)
         return Response(

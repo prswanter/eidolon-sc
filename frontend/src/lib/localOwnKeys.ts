@@ -197,6 +197,13 @@ export function turnOwnKeys(
   return { ...(llm && { llm, ...(memory_llm && { memory_llm }) }), ...(image && { image }) };
 }
 
+/** 听她念一条回复要带的 `own_keys`：只有语音合成那一把，跟通话用的是同一把；没存就不带，
+ * 后端就用部署者的。 */
+export function speechOwnKeys(userId: string): Pick<LocalOwnKeys, "tts"> | undefined {
+  const { tts } = localOwnKeys(userId);
+  return tts ? { tts } : undefined;
+}
+
 /** 存了 key 的那几项服务：通话预检时只报这些服务名，不带 key；也是判断计不计入限额的依据。 */
 export function ownServices(keys: LocalOwnKeys): OwnService[] {
   return OWN_SERVICES.filter((service) => keys[service] !== undefined);

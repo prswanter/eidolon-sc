@@ -500,6 +500,7 @@ export function ConversationView({
               character={character}
               affinityOn={affinity !== null}
               timeZone={timeZone}
+              userId={userId}
             />
           ) : viewing.status === "failed" ? (
             <Empty className="h-full">
@@ -533,6 +534,7 @@ export function ConversationView({
             character={character}
             affinityOn={affinity !== null}
             timeZone={timeZone}
+            userId={userId}
           />
         )}
       </div>
@@ -706,12 +708,15 @@ function Messages({
   character,
   affinityOn,
   timeZone,
+  userId,
 }: {
   entries: Entry[];
   hearing: string;
   character: Character;
   affinityOn: boolean;
   timeZone: string;
+  /** 这一页属于谁：念一条回复时带他存的自带语音合成 key（跟通话带的是同一把）。 */
+  userId: string;
 }) {
   const lines = linesOf(entries, new Date(), affinityOn);
   return (
@@ -748,7 +753,7 @@ function Messages({
                 </MessageScrollerItem>
               ) : (
                 <MessageScrollerItem key={line.entry.key} messageId={line.entry.key} className={cn(line.first && "mt-2")}>
-                  <Bubbled line={line} entry={line.entry} character={character} />
+                  <Bubbled line={line} entry={line.entry} character={character} userId={userId} />
                 </MessageScrollerItem>
               ),
             )}
@@ -796,10 +801,12 @@ function Bubbled({
   line: { first, last },
   entry,
   character,
+  userId,
 }: {
   line: Extract<Line, { kind: "entry" }>;
   entry: Exclude<Entry, { kind: "event" }>;
   character: Character;
+  userId: string;
 }) {
   const time = <time className="shrink-0 pb-0.5 text-meta text-muted-foreground tabular-nums">{clock(entry.at)}</time>;
   /** 这条回复在数据库里的编号（`m12`、搭话的 `r12`）；还在生成、没落库的那条没有。 */
@@ -810,7 +817,7 @@ function Bubbled({
   const speaker = speechId === null ? null : (
     <button
       type="button"
-      onClick={() => void toggleSpeech(speechId, t.speakFailed)}
+      onClick={() => void toggleSpeech(speechId, t.speakFailed, userId)}
       aria-label={speaking ? t.speaking : t.speak}
       aria-pressed={speaking}
       className="shrink-0 pb-0.5 text-muted-foreground transition-colors hover:text-foreground"

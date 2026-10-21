@@ -58,7 +58,7 @@
 
 **5. 发语音给她（`decc6e7a`）** — 输入框右边的麦克风：点一下录，再点一下停下，`POST /api/voice` 交后端听成文字，然后当普通消息发出去。浏览器端录 16 kHz 单声道 PCM（`lib/voiceMessage.ts`），后端整段送百炼识别（`bailian.transcribe`，和通话里的流式识别分开）。**只认百炼的 key**：Soniox 收不了整段录音，换了 key 会直接告诉你换回来。
 
-**6. 把她的回复念出来（`0a66bce2`）** — 她最后一条气泡旁边的小喇叭，点一下才合成，再点一下停，同一时间只念一条。念之前先去掉语气提示，只念日语原文。合成结果存 `message_speech` 表，再点是放存下那份，**不重复花钱**。没配语音合成时返回 503 并说明。
+**6. 把她的回复念出来（`0a66bce2`）** — 她最后一条气泡旁边的小喇叭，点一下才合成，再点一下停，同一时间只念一条。念之前先去掉语气提示，只念日语原文。合成结果存 `message_speech` 表，再点是放存下那份，**不重复花钱**。key 跟通话走同一条路（`POST /api/messages/<id>/speech` 带 `own_keys`）：自带的优先，没自带才用部署的；自带那把失败就报「你自带的密钥」并打码，不回落。两边都没配时返回 503 并说明。
 
 三个功能新增两张表（`user_images`、`message_speech`），都登记进 `USER_DATA` / `CONVERSATION_DATA`，导出数据包和删除对话时跟着走；启动时自动建表，老库不用迁移。
 
@@ -93,7 +93,7 @@ youjiwu 的 fork 里另有两件事没跟：
 | `llm/__init__.py` | `ChatMessage.image`：一轮可以带一张图（`(bytes, mime)`） |
 | `llm/anthropic.py` / `openai_compat.py` / `responses.py` | 各自协议里编码图片：`image` 块 / `image_url` / `input_image` |
 | `engine.py` | `turn()` 多了 `image` / `picture_note` / `picture_is_her` / `show_picture`，提示词里告诉她「图里是什么」（`PICTURE_SENT`） |
-| `app.py` | 三个新接口 `POST /api/voice`、`GET /api/messages/{id}/image`、`GET /api/messages/{id}/speech`；`_describe_picture` 先单独读图 |
+| `app.py` | 三个新接口 `POST /api/voice`、`GET /api/messages/{id}/image`、`POST /api/messages/{id}/speech`（带 `own_keys`，跟通话同一套 key 解析）；`_describe_picture` 先单独读图 |
 | `bailian.py` | `transcribe()`：整段 PCM 一次送识别，和通话里的流式识别分开 |
 | `call.py` / `greetings.py` / `live_config.py` | `Speech` 协议加 `transcribe` / `voice_line`；`LiveConfig.voice` 取当前生效的语音合成配置 |
 | `store.py` / `database.py` | 两张新表，登记进 `USER_DATA` / `CONVERSATION_DATA` |
@@ -190,9 +190,11 @@ scripts/stand-sync-local.sh        # fetch → outfits → thumbnails → upload
 |---|---|---|
 | 发图片给她看 | 一个**能看图**的模型。`CHAT_LLM_MODEL` 看不了图也没关系，把 `BACKGROUND_LLM_*` 指向一个视觉模型即可：读图这活交给后台模型，它只回答「图里是什么、是不是她」，便宜且不占扮演的上下文 | 没配 → 回「她现在看不懂图片」，并提示去配背景模型 |
 | 发语音给她 | `STT_PROVIDER=bailian` + `DASHSCOPE_API_KEY`（阿里云百炼）。Soniox 收不了整段录音，代码里会直说要换回来 | 没配 → 「还没有配置语音识别」 |
-| 把她的回复念出来 | `FISH_AUDIO_API_KEY`（可选 `FISH_AUDIO_MODEL`） | 没配 → 「还没有配置语音合成」 |
+| 把她的回复念出来 | 语音合成 key（Fish Audio），**跟通话用的是同一把**：设置页里自带的语音合成 key 优先、按你选的模型念，没自带才用部署的 `FISH_AUDIO_API_KEY`（可选 `FISH_AUDIO_MODEL`） | 两边都没配 → 「还没有配置语音合成」 |
 
 注意：**「发语音」和「她说话」是两套 key**。前者是识别（百炼），后者是合成（Fish Audio）。两者都没配，纯文字对话照常。
+
+朗读跟通话同源：浏览器点小喇叭时把自带的那把 Fish Audio key 跟通话请求一样带上来（`own_keys.tts`），失败也跟通话一样只报「你自带的那把」、把 key 打码，绝不偷偷回落到部署的 key。区别只在计费之外——朗读不占通话时长，合成一次就存在 `message_speech` 里。
 
 ## 已知限制
 
