@@ -39,6 +39,12 @@ describe("contentSecurityPolicy", () => {
     expect(policy.get("img-src")).toEqual(["'self'", "data:", "blob:"]);
   });
 
+  it("allows the blob: audio a reply is read aloud from", () => {
+    const policy = directives(contentSecurityPolicy(undefined));
+
+    expect(policy.get("media-src")).toEqual(["'self'", "blob:"]);
+  });
+
   it.each(["not a url", "javascript:alert(1)"])(
     "leaves out a stand address that is not one (%j)",
     (url) => {
