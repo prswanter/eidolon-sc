@@ -441,3 +441,50 @@ def _event(message: str | bytes) -> dict:
 def _has_words(text: str) -> bool:
     """Whether `text` has any letter or digit in it: more than punctuation and spaces."""
     return any(unicodedata.category(c)[0] in "LN" for c in text)
+
+TRANSCRIBE_TIMEOUT = 60.0
+"""How long a whole voice message may take to be heard once its audio is sent: the service
+answers as it goes, and this only bounds a connection that hangs."""
+
+
+async def transcribe(
+    *,
+    api_key: str,
+    model: str,
+    region: BailianRegion | None,
+    pcm: bytes,
+    hot_words: Sequence[str] = (),
+    proxy: str | None = None,
+) -> str:
+    """What the voice message `pcm` says (16 kHz, 16-bit mono), transcribed whole: one task,
+    its audio sent a packet at a time, then finished and its sentences read back.
+
+    A voice message is not a call: nothing is listened to as it arrives, and there is no one
+    to interrupt. So this waits for every sentence and joins them, where the call's service
+    streams them as it goes."""
+    regions = [region] if region is not None else list(REGION_URLS)
+    websocket, task_id, _ = await _start_task(
+        partial(connect, proxy=proxy), api_key, model, regions, hot_words
+    )
+    try:
+        for start in range(0, len(pcm), PACKET_BYTES):
+            await websocket.send(pcm[start : start + PACKET_BYTES])
+        await websocket.send(_finish_task_message(task_id))
+        said: list[str] = []
+        async with asyncio.timeout(TRANSCRIBE_TIMEOUT):
+            async for message in websocket:
+                event = _event(message)
+                kind = event.get("header", {}).get("event")
+                if kind == "result-generated":
+                    sentence = event.get("payload", {}).get("output", {}).get("sentence")
+                    if isinstance(sentence, dict) and sentence.get("sentence_end"):
+                        text = str(sentence.get("text") or "").strip()
+                        if _has_words(text):
+                            said.append(text)
+                elif kind == "task-finished":
+                    break
+                elif kind == "task-failed":
+                    raise _Refused(_failure(event.get("header", {})))
+        return "".join(said)
+    finally:
+        await websocket.close()

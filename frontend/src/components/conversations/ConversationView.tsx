@@ -46,6 +46,7 @@ import { isLive, NOT_OPEN, type LiveConversation, type Trophy } from "@/lib/live
 import { linesOf, type Line } from "@/lib/messageLines";
 import { pastDay } from "@/lib/pastConversations";
 import { photosUsedUpText } from "@/lib/photoFailure";
+import { hearVoice, startRecording, type Recording } from "@/lib/voiceMessage";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
 import {
@@ -56,6 +57,7 @@ import {
   CooldownIcon,
   EndedIcon,
   GiftIcon,
+  MicIcon,
   MoreIcon,
   NewConversationIcon,
   OutfitIcon,
@@ -131,6 +133,10 @@ export function ConversationView({
   /** 这一轮要发给她的图片：选中的 data URL，发出去或取消后清空。 */
   const [picture, setPicture] = useState<string | null>(null);
   const pictureInput = useRef<HTMLInputElement>(null);
+  /** 正在录的那一段，和它的去处：停下后交给后端听成文字，再当普通消息发出去。 */
+  const [recording, setRecording] = useState<Recording | null>(null);
+  const [transcribing, setTranscribing] = useState(false);
+  const [voiceFailure, setVoiceFailure] = useState<string | null>(null);
   const { viewing, view, backToCurrent } = usePastConversation(character.id);
   const subtree = useRef<HTMLDivElement>(null);
   // 她现在对制作人的好感度；读不到（好感度关着、没配判断模型或请求失败）就不显示标识，也不出变化胶囊。
@@ -306,6 +312,36 @@ export function ConversationView({
   }
 
   const canSend = isOpen && (draft.trim() !== "" || picture !== null);
+  /**
+   * 点一下开始录，再点一下停下并发送：录到的声音交给后端听成文字，当普通消息发出去。
+   * 浏览器只在安全来源下给麦克风，所以纯 HTTP 的局域网地址上会失败，提示用户换地址。
+   */
+  const toggleVoice = async () => {
+    if (transcribing) return;
+    if (recording === null) {
+      setVoiceFailure(null);
+      try {
+        setRecording(await startRecording());
+      } catch {
+        setVoiceFailure(t.voiceBlocked);
+      }
+      return;
+    }
+    const captured = await recording.stop();
+    setRecording(null);
+    if (captured === null) return;
+    setTranscribing(true);
+    try {
+      const heard = await hearVoice(captured);
+      live?.setDraft(heard);
+      await live?.submit(picture);
+      setPicture(null);
+    } catch (e) {
+      setVoiceFailure(e instanceof Error ? e.message : t.voiceBlocked);
+    } finally {
+      setTranscribing(false);
+    }
+  };
   const cooldownUntil = cooling ? affinity?.cooldown_until : null;
   // 冷却中的解除时刻和去礼物页的「送她一件礼物」：冷却那一行和冷却版结束卡共用。
   const until = cooldownUntil ? untilText(new Date(cooldownUntil), new Date(), timeZone) : null;
@@ -351,6 +387,11 @@ export function ConversationView({
     >
       {/* 失败的原因（没登录时带去登录的入口）；通话层盖着时整栏 inert，Tab 摸不到 */}
       {failure && <FailureNotice failure={{ ...failure, message: failureText(failure) }} />}
+      {voiceFailure && (
+        <p role="status" className="px-1 text-meta text-destructive">
+          {voiceFailure}
+        </p>
+      )}
       {picture && (
         <div className="flex items-start gap-2">
           <img src={picture} alt={t.imageAttached} className="max-h-24 rounded-bubble border object-contain" />
@@ -409,6 +450,20 @@ export function ConversationView({
           disabled={!isOpen}
           className="flex-1"
         />
+        {/* 发语音：点一下开始录，再点一下停下并发送。录音时按键变成红实底并呼吸，
+            这样不看图标也知道正在录；识别中转圈。 */}
+        <Button
+          type="button"
+          variant={recording === null ? "ghost" : "destructive"}
+          size="icon-lg"
+          aria-label={recording === null ? t.voiceStart : t.voiceStop}
+          aria-pressed={recording !== null}
+          disabled={!isOpen || transcribing}
+          onClick={() => void toggleVoice()}
+          className={recording === null ? undefined : "animate-pulse"}
+        >
+          {transcribing ? <Spinner className="size-5" /> : <MicIcon className="size-5" />}
+        </Button>
         {/* 按下时不抢输入框的焦点：手机上一失焦键盘就收、dock 冒出来，输入栏跟着跳走，这一下点击落空 */}
         <Button
           type="submit"

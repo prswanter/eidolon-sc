@@ -80,6 +80,9 @@ day, then revalidate by ETag, so lists showing every avatar don't download them 
 MAX_TURN_IMAGE_BYTES = 8 * 1024 * 1024
 """The largest picture a turn may bring, in bytes: a bigger one is refused, not shrunk."""
 
+MAX_VOICE_BYTES = 8 * 1024 * 1024
+"""The largest voice message, in bytes: 16 kHz 16-bit mono, about four minutes."""
+
 NO_PICTURE_MODEL = (
     "她现在看不懂图片：给「背景模型」填一个能看图的（例如百炼的 qwen-vl-max），"
     "或者把对话模型换成能看图的，再试一次"
@@ -713,6 +716,26 @@ def create_app(backend: Backend) -> FastAPI:
         return Response(
             data, media_type=mime, headers={"Cache-Control": "private, max-age=31536000"}
         )
+
+    @app.post("/api/voice")
+    async def hear_voice(request: Request, user_id: UserId) -> dict[str, str]:
+        """What a voice message says, so the composer can send it as text: 16 kHz 16-bit
+        mono PCM in the body, transcribed on the deployer's speech recognition."""
+        pcm = await request.body()
+        if not pcm:
+            raise HTTPException(422, "没有收到声音")
+        if len(pcm) > MAX_VOICE_BYTES:
+            raise HTTPException(413, "语音太长了，最多 8 MB")
+        key = backend.config.stt_key
+        if key is None:
+            raise HTTPException(503, "还没有配置语音识别")
+        try:
+            heard = await backend.speech.transcribe(key, backend.settings.bailian_stt_model, pcm)
+        except Exception as e:  # nothing was sent, so nothing is lost
+            raise HTTPException(502, f"没能听清这段语音：{e}") from e
+        if not heard.strip():
+            raise HTTPException(422, "没有听清，再说一次？")
+        return {"text": heard}
 
     @app.post("/api/conversations/{conversation_id}/turns")
     def text_turn(

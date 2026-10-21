@@ -761,6 +761,10 @@ class FakeSpeech:
         self.rejects: dict[str, str] = {}
         self.regions: dict[str, BailianRegion] = {}
         self.voiced: list[tuple[str, str, str]] = []
+        self.heard: str = ""
+        """What a voice message is heard as."""
+        self.transcribed: list[tuple[SttKey, str, int]] = []
+        """Each voice message heard: the key, the model and its size in bytes."""
 
     def stt(self, key: SttKey, *, own: bool) -> Hearing:
         self.own.append(("stt", own))
@@ -792,6 +796,14 @@ class FakeSpeech:
         self.voiced.append((api_key, model, voice_id))
         if api_key in self.rejects:
             raise RuntimeError(self.rejects[api_key])
+
+    async def transcribe(self, key: SttKey, model: str, pcm: bytes) -> str:
+        """What a voice message says, from `heard` (nothing heard by default), recording each
+        message heard with the key it came on and its size (`transcribed`)."""
+        self.transcribed.append((key, model, len(pcm)))
+        if key.api_key in self.rejects:
+            raise RuntimeError(self.rejects[key.api_key])
+        return self.heard
 
     def _try(self, service: str, api_key: str) -> None:
         self.checked.append((service, api_key))

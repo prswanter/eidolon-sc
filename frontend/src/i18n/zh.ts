@@ -179,6 +179,11 @@ export const zh = {
     attachImage: "发一张图片给她看",
     removeImage: "取消这张图片",
     imageAttached: "准备发给她的图片",
+    /** 输入框右边发语音的按钮：点一下开始录，再点一下停下并发送。 */
+    voiceStart: "录一段语音发给她",
+    voiceStop: "停下并发送这段语音",
+    /** 拿不到麦克风（纯 HTTP 的局域网地址、或用户拒绝了权限）时的提示。 */
+    voiceBlocked: "拿不到麦克风：请用 HTTPS 或 localhost 打开这个页面，并允许麦克风权限",
     /** 消息区里跨天处的日期条；昨天、更早的写法和列表一样（conversationList）。 */
     today: "今天",
     emptyTitle: (name: string) => `和${name}打个招呼吧`,

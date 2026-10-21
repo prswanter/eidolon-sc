@@ -99,6 +99,7 @@ from eidolon.activity import (
     error_kind,
     host,
 )
+from eidolon import bailian
 from eidolon.admission import Admission, Admissions
 from eidolon.affinity import EndsFor
 from eidolon.bailian import FOLLOW_ON_TIMEOUT as BAILIAN_FOLLOW_ON_TIMEOUT
@@ -295,6 +296,12 @@ class Speech(Protocol):
     async def voice_a_word(self, api_key: str, model: FishAudioModel, voice_id: str) -> None:
         """Have Fish Audio voice a word with `model` in `voice_id`, on the deployer's
         `api_key`, as the service status tries it; raises whatever says why it did not."""
+        ...
+
+    async def transcribe(self, key: SttKey, model: str, pcm: bytes) -> str:
+        """What a voice message says (`pcm`: 16 kHz, 16-bit mono), transcribed whole on the
+        deployer's `key`, in whatever `model` is the service's to use for it: the composer
+        sends it as text, so nothing of it is streamed. Raises whatever says why not."""
         ...
 
 
@@ -755,6 +762,20 @@ class SpeechServices:
         res.raise_for_status()
         if not res.content:
             raise RuntimeError("Fish Audio 没有返回音频")
+
+    async def transcribe(self, key: SttKey, model: str, pcm: bytes) -> str:
+        """Over DashScope's realtime protocol, batched (`bailian.transcribe`): Soniox would
+        have a voice message as a stream of its own, so a key for it cannot hear one."""
+        if key.provider != "bailian":
+            raise RuntimeError("语音消息只能用百炼的 key 听：换个 key，或者打字发给她")
+        return await bailian.transcribe(
+            api_key=key.api_key,
+            model=model,
+            region=key.region,
+            pcm=pcm,
+            hot_words=self.hot_words,
+            proxy=self._proxy("stt", False)(),
+        )
 
     def _proxy(self, service: Literal["tts", "stt"], own: bool) -> Callable[[], str | None]:
         """Where a connection of `service` on a user's `own` key or the deployer's goes
