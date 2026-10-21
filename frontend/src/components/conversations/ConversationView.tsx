@@ -44,6 +44,7 @@ import type { Failure } from "@/lib/failure";
 import { giftsHref } from "@/lib/gifts";
 import { isLive, NOT_OPEN, type LiveConversation, type Trophy } from "@/lib/liveConversation";
 import { linesOf, type Line } from "@/lib/messageLines";
+import { speechState, stopSpeech, subscribeSpeech, toggleSpeech } from "@/lib/messageSpeech";
 import { pastDay } from "@/lib/pastConversations";
 import { photosUsedUpText } from "@/lib/photoFailure";
 import { hearVoice, startRecording, type Recording } from "@/lib/voiceMessage";
@@ -65,6 +66,7 @@ import {
   PhoneIcon,
   PhotosUsedUpIcon,
   SendIcon,
+  SpeakIcon,
 } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
@@ -163,6 +165,11 @@ export function ConversationView({
   useEffect(() => {
     if (snapshot.newPhoto) live?.photoSeen();
   }, [snapshot.newPhoto, live]);
+
+  // 离开这一页就停下正在朗读的那条：换了角色、去了别的页面，她都不该接着说话。
+  useEffect(() => {
+    return () => stopSpeech();
+  }, []);
 
   const isOpen = conversation.status === "open";
   // 送礼入口去的礼物页：只带她，礼物一律记进当前对话（历史对话里点的也一样）。
@@ -782,7 +789,8 @@ function EventLine({ entry, name }: { entry: Extract<Entry, { kind: "event" }>; 
 
 /**
  * 一条消息。制作人的在右，深蓝墨水；她的在左，日语原文在上、中文字幕在下（The Original-Then-Subtitle Rule）。
- * 头像和名字只在一组的第一条，时间只在最后一条的外侧底部。
+ * 头像和名字只在一组的第一条，时间只在最后一条的外侧底部；她那条最后一条的时间旁边是小喇叭，
+ * 点一下把这条回复念出来（按需合成，再点一下停下，同一时间只念一条）。
  */
 function Bubbled({
   line: { first, last },
@@ -794,6 +802,26 @@ function Bubbled({
   character: Character;
 }) {
   const time = <time className="shrink-0 pb-0.5 text-meta text-muted-foreground tabular-nums">{clock(entry.at)}</time>;
+  /** 这条回复在数据库里的编号（`m12`、搭话的 `r12`）；还在生成、没落库的那条没有。 */
+  const speechId = entry.kind === "character" && /^[mr]\d+$/.test(entry.key) ? Number(entry.key.slice(1)) : null;
+  // 朗读按需合成：语音由后端存在这条消息上，同一时间只放一条（`messageSpeech`）。
+  const speech = useSyncExternalStore(subscribeSpeech, speechState, speechState);
+  const speaking = speechId !== null && speech?.messageId === speechId;
+  const speaker = speechId === null ? null : (
+    <button
+      type="button"
+      onClick={() => toggleSpeech(speechId)}
+      aria-label={speaking ? t.speaking : t.speak}
+      aria-pressed={speaking}
+      className="shrink-0 pb-0.5 text-muted-foreground transition-colors hover:text-foreground"
+    >
+      {speaking && speech.phase === "loading" ? (
+        <Spinner className="size-4" />
+      ) : (
+        <SpeakIcon className="size-4" />
+      )}
+    </button>
+  );
   if (entry.kind === "user") {
     return (
       <Message align="end">
@@ -841,6 +869,7 @@ function Bubbled({
               )}
             </BubbleContent>
           </Bubble>
+          {last && !entry.pending && speaker}
           {last && !entry.pending && time}
         </div>
       </MessageContent>

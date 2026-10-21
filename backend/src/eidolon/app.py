@@ -28,6 +28,7 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.characters import Character, ScriptedLine, in_idol_order
+from eidolon.delivery_cues import spoken_by, voiced
 from eidolon.engine import ENDED, TurnFailed, TurnJudged, shown
 from eidolon.llm import ChatLLM, ChatMessage, TurnLLMs
 from eidolon.greetings import (
@@ -715,6 +716,40 @@ def create_app(backend: Backend) -> FastAPI:
         data, mime = found
         return Response(
             data, media_type=mime, headers={"Cache-Control": "private, max-age=31536000"}
+        )
+
+    @app.get("/api/messages/{message_id}/speech")
+    async def message_speech(message_id: int, user_id: UserId) -> Response:
+        """Her reply said aloud: voiced the first time the user asks for it, on the
+        deployer's speech synthesis and in her own voice, and kept with the message so that
+        asking again voices nothing; 404 for anyone else's."""
+        speaking = store.message_to_speak(message_id, user_id)
+        if speaking is None:
+            raise HTTPException(404, "没有这条消息")
+        kept = store.message_speech(message_id)
+        if kept is not None:
+            data, mime = kept
+            return Response(
+                data, media_type=mime, headers={"Cache-Control": "private, max-age=31536000"}
+            )
+        voice = backend.config.voice
+        if voice is None:
+            raise HTTPException(503, "还没有配置语音合成")
+        character_id, ja, conversation_id = speaking
+        character = characters.get(character_id)
+        voice_id = (character.voice_id if character else "").strip()
+        if not voice_id:
+            raise HTTPException(503, "她还没有声音")
+        said = spoken_by(voiced(ja), voice.model)
+        if not said.strip():
+            raise HTTPException(503, "这条回复没有可以念出来的文字")
+        try:
+            data = await backend.speech.voice_line(voice, said, voice_id)
+        except Exception as e:  # voiced or not, the reply itself stays
+            raise HTTPException(502, f"语音合成失败了：{e}") from e
+        store.keep_message_speech(message_id, conversation_id, "audio/mpeg", data)
+        return Response(
+            data, media_type="audio/mpeg", headers={"Cache-Control": "private, max-age=31536000"}
         )
 
     @app.post("/api/voice")

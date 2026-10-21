@@ -63,6 +63,7 @@ from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import (
     CLOUDFLARE_JUDGE_MODELS,
+    DEFAULT_FISH_AUDIO_MODEL,
     DEFAULT_REACH_OUTS_PER_DAY,
     DEFAULT_BAILIAN_JUDGE_REGION,
     ChatModelSettings,
@@ -99,6 +100,7 @@ from eidolon.database import connect
 from eidolon.affinity import Judged
 from eidolon.affinity_judge import ModelAffinityJudge
 from eidolon.emotion import EmotionJudging, ModelEmotionJudge
+from eidolon.greetings import FishAudioSettings
 from eidolon.image_generation import (
     GENERATION_TIMEOUT,
     ImageFailed,
@@ -1373,6 +1375,16 @@ class LiveConfig:
             await self._memory.replace(prepared or self._clients.memory_llm(memory), memory)
         elif prepared is not None:
             await prepared.aclose()
+
+    @property
+    def voice(self) -> FishAudioSettings | None:
+        """The deployer's speech synthesis in effect now; None without a key, as then nothing
+        can be voiced on demand (a reply's speaker beside its bubble, say)."""
+        values = self.effective(TTS)
+        api_key = str(values.get("api_key") or "").strip()
+        if not api_key:
+            return None
+        return FishAudioSettings(api_key, values.get("model") or DEFAULT_FISH_AUDIO_MODEL)
 
     @property
     def stt_key(self) -> SttKey | None:

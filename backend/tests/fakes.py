@@ -53,6 +53,7 @@ from eidolon.config import (
 from eidolon.embedding import Document, EmbeddingError
 from eidolon.rerank import RerankError
 from eidolon.emotion import _EMOTION_OPTIONS, _NOD_OPTIONS, Emotion, EmotionAnswer, Nod
+from eidolon.greetings import FishAudioSettings
 from eidolon.identity import Identity, IdentityError, ProviderName
 from eidolon.llm import (
     ChatLLM,
@@ -750,6 +751,9 @@ class FakeSpeech:
     the service status tries Fish Audio, by key, model and voice (`voiced`), failing on a
     key in `rejects` as well."""
 
+    SPOKEN = b"ID3 fake reply audio"
+    """What a reply said aloud comes back as."""
+
     def __init__(self) -> None:
         self.own: list[tuple[str, bool]] = []
         self.follow_on_timeout = SONIOX_FOLLOW_ON_TIMEOUT
@@ -765,6 +769,8 @@ class FakeSpeech:
         """What a voice message is heard as."""
         self.transcribed: list[tuple[SttKey, str, int]] = []
         """Each voice message heard: the key, the model and its size in bytes."""
+        self.spoken: list[tuple[str, str, str, str]] = []
+        """Each reply said aloud: its key, model, voice and what was said."""
 
     def stt(self, key: SttKey, *, own: bool) -> Hearing:
         self.own.append(("stt", own))
@@ -804,6 +810,14 @@ class FakeSpeech:
         if key.api_key in self.rejects:
             raise RuntimeError(self.rejects[key.api_key])
         return self.heard
+
+    async def voice_line(self, fish: FishAudioSettings, text: str, voice_id: str) -> bytes:
+        """A reply said aloud, as one mp3 of the fake speech (`SPOKEN`), recording what was
+        voiced and in whose voice (`spoken`)."""
+        self.spoken.append((fish.api_key, fish.model, voice_id, text))
+        if fish.api_key in self.rejects:
+            raise RuntimeError(self.rejects[fish.api_key])
+        return self.SPOKEN
 
     def _try(self, service: str, api_key: str) -> None:
         self.checked.append((service, api_key))

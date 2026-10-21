@@ -184,6 +184,9 @@ export const zh = {
     voiceStop: "停下并发送这段语音",
     /** 拿不到麦克风（纯 HTTP 的局域网地址、或用户拒绝了权限）时的提示。 */
     voiceBlocked: "拿不到麦克风：请用 HTTPS 或 localhost 打开这个页面，并允许麦克风权限",
+    /** 她那条回复旁边的小喇叭：点一下念出这条回复，再点一下停下。 */
+    speak: "朗读这条回复",
+    speaking: "正在朗读，再点一下停下",
     /** 消息区里跨天处的日期条；昨天、更早的写法和列表一样（conversationList）。 */
     today: "今天",
     emptyTitle: (name: string) => `和${name}打个招呼吧`,

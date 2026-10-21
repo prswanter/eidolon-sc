@@ -134,6 +134,16 @@ CREATE TABLE IF NOT EXISTS user_images (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS user_images_by_conversation ON user_images(conversation_id);
+-- Her reply as audio, voiced the first time the user asks for it (the speaker beside its
+-- bubble) and kept with the message so that asking again voices nothing: one per message.
+CREATE TABLE IF NOT EXISTS message_speech (
+    message_id INTEGER PRIMARY KEY REFERENCES messages(id),
+    conversation_id TEXT NOT NULL REFERENCES conversations(id),
+    mime TEXT NOT NULL,
+    audio BLOB NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS message_speech_by_conversation ON message_speech(conversation_id);
 -- Each call that connected in a conversation (GLOSSARY.md「接通」), for stats alone: when it
 -- connected and how long it lasted once it had, as its activity record says; nothing of what
 -- was said. Not in the conversation's record: she knows nothing of it (ADR-0021).
@@ -1181,6 +1191,38 @@ class Store:
                 (message_id, user_id),
             ).fetchone()
         return (row["image"], row["mime"]) if row else None
+
+    def message_to_speak(self, message_id: int, user_id: str) -> tuple[str, str, str] | None:
+        """Which character said the message, what she said, and which conversation it is in,
+        if it is one of her replies in one of the user's conversations; None if not."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT c.character_id, m.ja, m.conversation_id FROM messages m"
+                " JOIN conversations c ON c.id = m.conversation_id"
+                " WHERE m.id = ? AND c.user_id = ? AND m.role = 'character' AND m.ja IS NOT NULL",
+                (message_id, user_id),
+            ).fetchone()
+        return (row["character_id"], row["ja"], row["conversation_id"]) if row else None
+
+    def message_speech(self, message_id: int) -> tuple[bytes, str] | None:
+        """That reply's audio and its media type, once it has been voiced."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT audio, mime FROM message_speech WHERE message_id = ?", (message_id,)
+            ).fetchone()
+        return (row["audio"], row["mime"]) if row else None
+
+    def keep_message_speech(
+        self, message_id: int, conversation_id: str, mime: str, audio: bytes
+    ) -> None:
+        """Keep the audio the reply was voiced into, so that asking for it again voices
+        nothing."""
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO message_speech"
+                " (message_id, conversation_id, mime, audio, created_at) VALUES (?, ?, ?, ?, ?)",
+                (message_id, conversation_id, mime, audio, _now()),
+            )
 
     def add_gift(
         self,

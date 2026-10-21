@@ -99,7 +99,7 @@ from eidolon.activity import (
     error_kind,
     host,
 )
-from eidolon import bailian
+from eidolon import bailian, greetings
 from eidolon.admission import Admission, Admissions
 from eidolon.affinity import EndsFor
 from eidolon.bailian import FOLLOW_ON_TIMEOUT as BAILIAN_FOLLOW_ON_TIMEOUT
@@ -141,7 +141,7 @@ from eidolon.own_keys import (
     OwnKeys,
     Service,
 )
-from eidolon.greetings import FISH_TTS_HTTP_URL
+from eidolon.greetings import FISH_TTS_HTTP_URL, FishAudioSettings
 from eidolon.happenings import Happenings
 from eidolon.proxy import ProxiedWebsocket, ProxyRoutes, masked, open_client
 from eidolon.readings import Reading, pronunciation_dictionary
@@ -302,6 +302,11 @@ class Speech(Protocol):
         """What a voice message says (`pcm`: 16 kHz, 16-bit mono), transcribed whole on the
         deployer's `key`, in whatever `model` is the service's to use for it: the composer
         sends it as text, so nothing of it is streamed. Raises whatever says why not."""
+        ...
+
+    async def voice_line(self, fish: FishAudioSettings, text: str, voice_id: str) -> bytes:
+        """`text` said in `voice_id`, as mp3, on the deployer's Fish Audio `fish`: a reply
+        asked for aloud, not streamed as a call's is. Raises whatever says why not."""
         ...
 
 
@@ -776,6 +781,10 @@ class SpeechServices:
             hot_words=self.hot_words,
             proxy=self._proxy("stt", False)(),
         )
+
+    async def voice_line(self, fish: FishAudioSettings, text: str, voice_id: str) -> bytes:
+        """Over Fish Audio's HTTP API, as a call's TTS does it, but whole."""
+        return await greetings.voice_line(fish, text, voice_id)
 
     def _proxy(self, service: Literal["tts", "stt"], own: bool) -> Callable[[], str | None]:
         """Where a connection of `service` on a user's `own` key or the deployer's goes
