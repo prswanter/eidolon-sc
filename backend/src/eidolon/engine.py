@@ -300,6 +300,11 @@ def shown(event: TurnEvent) -> dict:
 
 FAILED = "角色暂时无法回复，请稍后再试。"
 """What the user reads when a turn fails; the details stay in the server log."""
+PICTURE_SENT = (
+    "制作人这一轮发来了一张图片，就在最后这条消息里：看着它回应，"
+    "不要说没收到、看不见，也不要让他自己描述图片内容。"
+)
+"""What she is told before a turn that came with a picture, so that the model looks at it."""
 TOO_LONG = f"这句话太长了，最多 {MAX_INPUT_LENGTH} 字。"
 """What the user reads when a turn is rejected for input over `MAX_INPUT_LENGTH`."""
 BLANK = "没有收到要说的话。"
@@ -554,16 +559,26 @@ class ConversationEngine:
         in_call: InCall | None = None,
         voiced_by: FishAudioModel | None = None,
         own_image: ImageSettings | None = None,
+        image: tuple[bytes, str] | None = None,
+        picture_note: str | None = None,
+        picture_is_her: bool | None = None,
+        picture_other: str | None = None,
+        show_picture: bool = True,
     ) -> AsyncGenerator[TurnEvent, None]:
         """Take one turn on `llms`, `in_call` if it is taken in one, its reply voiced with
         `voiced_by` (None for a text turn's), which has her write delivery cues as it reads
         them, her photo on the user's `own_image` generation if it brings it. `device_timezone`
         is the time zone the user's device reports, used unless the producer profile sets
-        one. Once `stop` is set, the turn goes no further and is recorded with the segments
-        complete by then."""
+        one. `image`         is the picture the user sent with it, with its media type; `picture_note`
+        is what that picture shows, `picture_is_her` whether it is her, and `picture_other`
+        which of the others it is when it is not her. `show_picture` is whether she is sent
+        the picture itself as well: with a background model reading it, the model that plays
+        her may be one that cannot see. Once `stop` is set, the turn goes no
+        further and is recorded with the segments complete by then."""
         text = text.strip()
         yield UserSaid(text)
-        if not text or len(text) > MAX_INPUT_LENGTH:
+        # A picture on its own is a turn too: there need not be anything typed with it.
+        if (not text and image is None) or len(text) > MAX_INPUT_LENGTH:
             yield TurnRejected(TOO_LONG if text else BLANK)
             return
         photo = _Photo(own_image)
@@ -573,7 +588,8 @@ class ConversationEngine:
         try:
             with taking:
                 async for event in self._reply(
-                    conversation, text, llms, device_timezone, stop, in_call, voiced_by, photo
+                    conversation, text, llms, device_timezone, stop, in_call, voiced_by, photo,
+                    image, picture_note, picture_is_her, picture_other, show_picture,
                 ):
                     yield event
         except OwnKeyFailed as e:  # theirs to fix, so they are told what went wrong
@@ -597,6 +613,11 @@ class ConversationEngine:
         in_call: InCall | None,
         voiced_by: FishAudioModel | None,
         photo: _Photo,
+        image: tuple[bytes, str] | None = None,
+        picture_note: str | None = None,
+        picture_is_her: bool | None = None,
+        picture_other: str | None = None,
+        show_picture: bool = True,
     ) -> AsyncIterator[TurnEvent]:
         if self._store.ended(conversation.id) is not None:
             yield TurnRejected(ENDED)
@@ -685,6 +706,7 @@ class ConversationEngine:
             ],
             [p for p in (retrieved.memories_prompt, retrieved.prompt) if p],
             text, voiced_by,
+            image, picture_note, picture_is_her, picture_other, show_picture,
         )
 
         # Offered on every turn, so that what goes before the history (the tools, with
@@ -929,6 +951,11 @@ class ConversationEngine:
         closing: list[str],
         text: str,
         voiced_by: FishAudioModel | None,
+        image: tuple[bytes, str] | None = None,
+        picture_note: str | None = None,
+        picture_is_her: bool | None = None,
+        picture_other: str | None = None,
+        show_picture: bool = True,
     ) -> list[ChatMessage]:
         """The prompt (ADR-0020): what changes from turn to turn tells first `about_turn`, then,
         should any photo of the history not have been sent, what that means, then `closing`:
@@ -955,9 +982,32 @@ class ConversationEngine:
         if history:  # what the next turn opens with too, for a service to cache
             prompt[-1] = replace(prompt[-1], cache_breakpoint=True)
         context = [*about_turn]
+        if image is not None:  # tell her, or a model may answer as though it saw nothing
+            if picture_is_her:
+                context.append(
+                    f"制作人这一轮发来一张图片，图里就是你自己：{picture_note}。"
+                    "你要认得出这是自己（可以是照片、立绘、玩偶、周边），用自己的口吻回应，"
+                    "不要说图里是别人，也不要让他自己描述。"
+                )
+            elif picture_other:
+                context.append(
+                    f"制作人这一轮发来一张图片，图里是{picture_other}，不是你。"
+                    "你知道她是谁，可以自然地提一句；那画的就是她本人，不要说她「像」。"
+                )
+            elif picture_note:
+                context.append(
+                    f"制作人这一轮发来一张图片，图里大概是：{picture_note}。"
+                    "看着它回应，不要说没收到或看不见，也不要让他自己描述。"
+                )
+            else:
+                context.append(PICTURE_SENT)
         if any(m.photo_failed for m in history):
             context.append(NOT_RECEIVED)
         context += closing
         prompt.append(ChatMessage("system", "\n\n".join(context)))
-        prompt.append(ChatMessage("user", f"{narration.get(None, '')}{text}"))
+        prompt.append(ChatMessage(
+            "user",
+            f"{narration.get(None, '')}{text}",
+            image=image if show_picture else None,
+        ))
         return prompt

@@ -1,5 +1,6 @@
 """OpenAI-compatible Chat Completions provider."""
 
+import base64
 import json
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
@@ -167,6 +168,20 @@ def _message(message: ChatMessage) -> dict[str, Any]:
             assistant["reasoning_content"] = reasoning
         assistant["tool_calls"] = [_call(call, extras.get(call.id)) for call in message.tool_calls]
         return assistant
+    if message.image is not None:  # the user sent a picture: parts, as this protocol takes them
+        data, mime = message.image
+        return {
+            "role": message.role,
+            "content": [
+                *([{"type": "text", "text": message.content}] if message.content else []),
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{mime};base64,{base64.b64encode(data).decode()}"
+                    },
+                },
+            ],
+        }
     return {"role": message.role, "content": message.content}
 
 

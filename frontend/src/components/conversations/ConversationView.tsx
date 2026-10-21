@@ -50,7 +50,9 @@ import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
 import {
   AchievementsIcon,
+  AttachImageIcon,
   BackIcon,
+  CloseIcon,
   CooldownIcon,
   EndedIcon,
   GiftIcon,
@@ -126,6 +128,9 @@ export function ConversationView({
   const outfits = useStandOutfits(character);
   const [pickingOutfit, setPickingOutfit] = useState(false);
   const [pickingPast, setPickingPast] = useState(false);
+  /** 这一轮要发给她的图片：选中的 data URL，发出去或取消后清空。 */
+  const [picture, setPicture] = useState<string | null>(null);
+  const pictureInput = useRef<HTMLInputElement>(null);
   const { viewing, view, backToCurrent } = usePastConversation(character.id);
   const subtree = useRef<HTMLDivElement>(null);
   // 她现在对制作人的好感度；读不到（好感度关着、没配判断模型或请求失败）就不显示标识，也不出变化胶囊。
@@ -300,7 +305,7 @@ export function ConversationView({
     );
   }
 
-  const canSend = isOpen && draft.trim() !== "";
+  const canSend = isOpen && (draft.trim() !== "" || picture !== null);
   const cooldownUntil = cooling ? affinity?.cooldown_until : null;
   // 冷却中的解除时刻和去礼物页的「送她一件礼物」：冷却那一行和冷却版结束卡共用。
   const until = cooldownUntil ? untilText(new Date(cooldownUntil), new Date(), timeZone) : null;
@@ -340,12 +345,52 @@ export function ConversationView({
       className="flex shrink-0 flex-col gap-2 border-t bg-background px-3 py-2"
       onSubmit={(e) => {
         e.preventDefault();
-        void live?.submit();
+        void live?.submit(picture);
+        setPicture(null);
       }}
     >
       {/* 失败的原因（没登录时带去登录的入口）；通话层盖着时整栏 inert，Tab 摸不到 */}
       {failure && <FailureNotice failure={{ ...failure, message: failureText(failure) }} />}
+      {picture && (
+        <div className="flex items-start gap-2">
+          <img src={picture} alt={t.imageAttached} className="max-h-24 rounded-bubble border object-contain" />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t.removeImage}
+            onClick={() => setPicture(null)}
+          >
+            <CloseIcon className="size-4" />
+          </Button>
+        </div>
+      )}
       <div className="flex items-end gap-2">
+        {/* 选一张图发给她：浏览器读成 data URL 放进待发的那一格，发送时随这一轮一起上去 */}
+        <input
+          ref={pictureInput}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => setPicture(typeof reader.result === "string" ? reader.result : null);
+            reader.readAsDataURL(file);
+          }}
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-lg"
+          aria-label={t.attachImage}
+          disabled={!isOpen}
+          onClick={() => pictureInput.current?.click()}
+        >
+          <AttachImageIcon className="size-5" />
+        </Button>
         <Textarea
           variant="composer"
           rows={1}
@@ -355,7 +400,8 @@ export function ConversationView({
             // 回车发送，Shift+回车换行；输入法选字时的回车不算。
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
-              void live?.submit();
+              void live?.submit(picture);
+              setPicture(null);
             }
           }}
           placeholder={t.placeholder}
@@ -700,7 +746,11 @@ function Bubbled({
           {last && time}
           <Bubble variant="producer" align="end" joinsPrevious={!first} joinsNext={!last}>
             <BubbleContent>
-              <p className="text-body whitespace-pre-wrap">{entry.text}</p>
+              {entry.image && (
+                // 发出去的那张图：还没落库时是这一页自己读出的 data URL，落库后换成服务端那一份。
+                <img src={entry.image} alt="" className="mb-1 max-h-64 rounded-bubble object-contain" />
+              )}
+              {entry.text && <p className="text-body whitespace-pre-wrap">{entry.text}</p>}
             </BubbleContent>
           </Bubble>
         </div>

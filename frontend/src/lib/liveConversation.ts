@@ -288,7 +288,7 @@ export type Ports = {
     preferences: CallPreferences,
     handlers: CallHandlers,
   ) => Promise<Call>;
-  sendTurn: (conversationId: string, text: string) => AsyncIterable<TurnEvent>;
+  sendTurn: (conversationId: string, text: string, image?: string | null) => AsyncIterable<TurnEvent>;
   /** How a photo she sent is coming along. */
   getPhoto: (id: string) => Promise<PhotoStatus>;
   /** Her affinity with the user now; null while affinity is off. */
@@ -422,28 +422,33 @@ export class LiveConversation {
     this.update({ draft: draft.slice(0, MAX_INPUT_LENGTH) });
   }
 
-  /** Send what is in the input box as a text turn. */
-  async submit(): Promise<void> {
+  /** Send what is in the input box as a text turn, with the picture picked alongside it. */
+  async submit(image?: string | null): Promise<void> {
     const text = this.state.draft.trim();
     const conversationId = this.openConversationId();
     // One exchange at a time: not over a text turn, nor into a call still dialing; none in a
     // cooldown, nor into a conversation she has ended.
-    if (!text || !conversationId || this.state.busy || this.state.call.phase === "dialing") return;
+    // A picture on its own is an exchange too: nothing typed with it still sends.
+    if ((!text && !image) || !conversationId || this.state.busy || this.state.call.phase === "dialing") return;
     if (isCooling(this.state) || isEnded(this.state)) return;
     this.update({ draft: "", failure: null });
     if (this.call) {
       // The call takes it up like speech; its reply arrives as call events. Typed while she
-      // speaks, it interrupts her.
+      // speaks, it interrupts her. A picture has no way into a call: it is left for next time.
       this.call.sendText(text);
       this.moveCard({ type: "interrupted" }, { stand: this.directed({ type: "typed" }) });
       return;
     }
-    this.apply({ type: "submitted", text, at: this.isoNow() }, { busy: true });
+    // The picture is shown on the entry at once, so it is there before the backend answers.
+    this.apply(
+      { type: "submitted", text, at: this.isoNow(), image: image ?? undefined },
+      { busy: true },
+    );
 
     let failure: Failure | null = null;
     let done = false;
     try {
-      for await (const event of this.ports.sendTurn(conversationId, text)) {
+      for await (const event of this.ports.sendTurn(conversationId, text, image)) {
         this.applyTurnEvent(event);
         if (event.type === "done") done = true;
         // A turn that failed leaves no record and does not count towards the limit.

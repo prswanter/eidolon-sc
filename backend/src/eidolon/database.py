@@ -23,6 +23,7 @@ USER_DATA = [
     ("memory_vectors", "user_id = ?"),
     ("memories", "user_id = ?"),
     ("photos", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
+    ("user_images", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
     ("messages", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
     ("conversation_events",
      "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
@@ -52,6 +53,7 @@ what refers to a row before the row."""
 
 CONVERSATION_DATA = [
     ("photos", "conversation_id = ?"),
+    ("user_images", "conversation_id = ?"),
     ("messages", "conversation_id = ?"),
     ("conversation_events", "conversation_id = ?"),
     ("reach_outs", "conversation_id = ?"),

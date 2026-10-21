@@ -24,13 +24,16 @@ async def send_turn(
     own_llm: dict | None = None,
     *,
     own_keys: dict | None = None,
+    image: str | None = None,
 ) -> list[dict]:
     """Send a text turn, bringing the user's `own_keys` if given, or else their `own_llm`
-    alone (as `own_keys`, which turns and calls bring alike), and collect the server-sent
-    events it streams back."""
+    alone (as `own_keys`, which turns and calls bring alike), with `image` as the picture it
+    brings if given, and collect the server-sent events it streams back."""
     events: list[dict] = []
     own_keys = own_keys or ({"llm": own_llm} if own_llm else None)
     body = {"text": text} | ({"own_keys": own_keys} if own_keys else {})
+    if image is not None:
+        body["image"] = image
     async with client.stream(
         "POST", f"/api/conversations/{conversation_id}/turns", json=body
     ) as res:

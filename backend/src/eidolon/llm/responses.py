@@ -1,5 +1,6 @@
 """OpenAI Responses provider."""
 
+import base64
 import json
 import logging
 from collections.abc import AsyncIterator, Sequence
@@ -149,7 +150,21 @@ def _items(message: ChatMessage) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = [
         item for r in message.reasoning for item in r.data.get("items", ())
     ]
-    if message.content:
+    if message.image is not None:  # the user sent a picture: input parts, as this protocol takes them
+        data, mime = message.image
+        items.append(
+            {
+                "role": message.role,
+                "content": [
+                    *([{"type": "input_text", "text": message.content}] if message.content else []),
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:{mime};base64,{base64.b64encode(data).decode()}",
+                    },
+                ],
+            }
+        )
+    elif message.content:
         items.append({"role": message.role, "content": message.content})
     items.extend(
         {

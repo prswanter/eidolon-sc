@@ -48,6 +48,10 @@ class ChatMessage:
     cache_breakpoint: bool = False
     """The prompt up to the end of this message is what many requests open with, worth a
     service caching: an adapter whose protocol caches only where told to says so here."""
+    image: tuple[bytes, str] | None = None
+    """A picture the user sent with this message, and its media type (`image/jpeg` and so on):
+    sent to a model that can see it, in the shape its protocol takes. A model that cannot see
+    it is left to refuse the request and say so."""
 
 
 def opening_system(

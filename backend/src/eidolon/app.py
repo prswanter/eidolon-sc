@@ -1,7 +1,10 @@
 """The backend's HTTP API."""
 
 import asyncio
+import base64
+import binascii
 import json
+import logging
 import math
 from collections.abc import AsyncIterator, Callable
 from contextlib import aclosing, asynccontextmanager
@@ -25,7 +28,8 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.characters import Character, ScriptedLine, in_idol_order
-from eidolon.engine import ENDED, TurnJudged, shown
+from eidolon.engine import ENDED, TurnFailed, TurnJudged, shown
+from eidolon.llm import ChatLLM, ChatMessage, TurnLLMs
 from eidolon.greetings import (
     LANDING_MEMORY_STILL_PATH,
     call_opener_path,
@@ -67,9 +71,119 @@ from eidolon.turn_outcome import TurnOutcome
 from eidolon.usage import OverLimit
 from eidolon.world import World
 
+log = logging.getLogger(__name__)
+
 _PICTURE_CACHE = {"Cache-Control": "public, max-age=86400"}
 """Avatars and call backgrounds change only with a deploy (ADR-0003): browsers keep them a
 day, then revalidate by ETag, so lists showing every avatar don't download them each visit."""
+
+MAX_TURN_IMAGE_BYTES = 8 * 1024 * 1024
+"""The largest picture a turn may bring, in bytes: a bigger one is refused, not shrunk."""
+
+NO_PICTURE_MODEL = (
+    "她现在看不懂图片：给「背景模型」填一个能看图的（例如百炼的 qwen-vl-max），"
+    "或者把对话模型换成能看图的，再试一次"
+)
+"""What the user reads when no model in play can see the picture, so there is nothing to say
+about it: better said than a turn that pretends she looked."""
+
+PICTURE_QUESTION = (
+    "先客观描述这张图片，一两句中文，只写看得见的东西（颜色、物体、场景），不要发挥。\n"
+    "然后另起一行，只回答图里的人物是谁，三选一：\n"
+    "- 就是「{name}」（{name_zh}）本人：回答「本人」；\n"
+    "- 是下面名单里的另一位，只写她的名字（必须名字和她的外表特征都对得上，拿不准就回答「不确定」，不要猜）；\n"
+    "- 都不是，或者看不出来：回答「不确定」。\n"
+    "名单：{roster}\n"
+    "「{name}」的外表特征：{appearance}"
+)
+"""What the model is asked about a picture the user sent, apart from her character prompt: a
+long role-play prompt drowns the picture out on smaller models, so what it shows is worked out
+first and then told to her in words — whether it is her, and which of the others it is, an
+anime character being hard to place from a picture alone."""
+
+
+async def _describe_picture(
+    llm: ChatLLM,
+    picture: tuple[bytes, str],
+    character: Character | None = None,
+    roster: str = "",
+) -> tuple[str, bool | None, str | None, bool]:
+    """What the picture shows, in a sentence; whether it is her (None when it cannot be
+    told); when it is another of the characters, which one; and whether that answer was one
+    the question asks for at all (`False` when the model answered something else, as one that
+    cannot see it may): nothing of what it says is worth telling her then."""
+    appearance = (character.photo_appearance if character else None) or "（没有记录）"
+    question = PICTURE_QUESTION.format(
+        name=character.name if character else "这位角色",
+        name_zh=character.name_zh if character else "",
+        appearance=appearance,
+        roster=roster or "（没有名单）",
+    )
+    said = ""
+    async for item in llm.stream([ChatMessage("user", question, image=picture)]):
+        if isinstance(item, str):
+            said += item
+    lines = [line.strip() for line in said.strip().splitlines() if line.strip()]
+    if not lines:
+        return "", None, None, False
+    verdict = lines[-1]
+    description = " ".join(lines[:-1]).strip()[:500] or verdict
+    if "本人" in verdict:
+        return description, True, None, True
+    if "不确定" in verdict or "不是" in verdict:
+        return description, None, None, True
+    if verdict and verdict in roster:  # one of the others, as she is named there
+        return description, False, verdict[:40], True
+    return description, None, None, False
+
+
+def _decode_turn_image(data_url: str | None) -> tuple[bytes, str] | None:
+    """The picture a turn brought, and its media type, out of its data URL; None if it brought
+    none. What is not one is refused, saying what it should look like."""
+    if not data_url:
+        return None
+    head, _, payload = data_url.partition(",")
+    if not head.startswith("data:image/") or not head.endswith(";base64"):
+        raise HTTPException(422, "图片要写成 data:image/<类型>;base64,<数据>")
+    mime = head[len("data:") : -len(";base64")]
+    try:
+        raw = base64.b64decode(payload, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(422, "图片的 base64 数据不合法") from None
+    if len(raw) > MAX_TURN_IMAGE_BYTES:
+        raise HTTPException(413, "图片太大了，最大 8 MB")
+    return raw, mime
+
+
+async def _look_at_picture(
+    llms: TurnLLMs,
+    picture: tuple[bytes, str],
+    character: Character | None,
+    roster: str,
+    *,
+    one_model: bool,
+) -> tuple[str | None, bool | None, str | None, bool] | None:
+    """What the picture shows, whether it is her, which of the others it is when it is not,
+    and whether the model that read it is the one that plays her (then she is sent the picture
+    itself as well). None when no model in play could read it.
+
+    A background model of its own is the one asked (`one_model` false): it may be the one
+    that sees, a cheap model that reads the picture while another plays her. With the chat
+    model the only one there is, it reads it itself, and gets the picture too."""
+    readers = [llms.chat] if one_model else [llms.background, llms.chat]
+    for reader in readers:
+        try:
+            note, is_her, other, read = await _describe_picture(reader, picture, character, roster)
+        except Exception:  # it may be the model that cannot see; try the other one
+            log.warning("a model could not read the picture the user sent", exc_info=True)
+            continue
+        if not read:  # it answered something else: it did not look at the picture
+            continue
+        if reader is llms.chat:
+            return note, is_her, other, True
+        if is_her is not None or other is not None or note:
+            return note, is_her, other, False
+    return None
 
 
 def _picture(path: Path, request: Request) -> Response:
@@ -89,6 +203,9 @@ class NewConversation(BaseModel):
 
 class TurnInput(BaseModel):
     text: str
+    image: str | None = None
+    """The user's picture for this turn, as a data URL (`data:image/png;base64,…`): read before
+    her reply is written, and kept on the turn's message for the record to show."""
     own_keys: OwnKeysInput | None = None
     """The user's own keys, which their browser keeps, for the turn to run on; the shape
     calls bring too. A turn uses only the LLMs and image generation, voice keys brought
@@ -579,7 +696,23 @@ def create_app(backend: Backend) -> FastAPI:
         """The conversation's record: its messages, conversation events and reach-outs, in
         order. The user reads it: its reach-outs are seen from now on."""
         conversation = conversation_or_404(conversation_id, user_id)
-        return [recorded(entry) for entry in store.read_by_user(conversation.id)]
+        entries = [recorded(entry) for entry in store.read_by_user(conversation.id)]
+        with_images = store.user_image_message_ids(conversation.id)
+        for entry in entries:  # a message the user sent a picture with says so, for the page
+            if entry.get("id") in with_images:
+                entry["image"] = True
+        return entries
+
+    @app.get("/api/messages/{message_id}/image")
+    def message_image(message_id: int, user_id: UserId) -> Response:
+        """The picture the user sent with that message; 404 for anyone else's."""
+        found = store.user_image(message_id, user_id)
+        if found is None:
+            raise HTTPException(404, "没有这张图片")
+        data, mime = found
+        return Response(
+            data, media_type=mime, headers={"Cache-Control": "private, max-age=31536000"}
+        )
 
     @app.post("/api/conversations/{conversation_id}/turns")
     def text_turn(
@@ -594,14 +727,33 @@ def create_app(backend: Backend) -> FastAPI:
         brought = body.own_keys.brought() if body.own_keys else BroughtKeys()
         admission = admissions.turn(user_id, conversation.character_id, brought)
         outcome = TurnOutcome(admission.recording, admission.settle)
+        picture = _decode_turn_image(body.image)
 
         async def events() -> AsyncIterator[str]:
             # Closed as the response is, so that the turn is no longer under way once the user
             # has gone (`Store.taking_turn`).
             with outcome.running():
+                note = is_her = other = None
+                show = False
+                if picture is not None:  # what it shows, worked out before her prompt is built
+                    looked = await _look_at_picture(
+                        admission.llms,
+                        picture,
+                        characters.get(conversation.character_id),
+                        roster="；".join(
+                            f"{c.name}（{c.photo_appearance}）" if c.photo_appearance else c.name
+                            for c in characters.values()
+                        ),
+                        one_model=backend.settings.background_llm is backend.settings.chat_llm,
+                    )
+                    if looked is None:  # said instead of a reply that pretends she looked
+                        yield _sse(shown(TurnFailed(NO_PICTURE_MODEL)))
+                        return
+                    note, is_her, other, show = looked
                 async with aclosing(engine.turn(
                     conversation, body.text, admission.llms, device_timezone,
-                    own_image=brought.image,
+                    own_image=brought.image, image=picture, picture_note=note,
+                    picture_is_her=is_her, picture_other=other, show_picture=show,
                 )) as turn:
                     async for event in turn:
                         outcome.see(event)
@@ -610,6 +762,8 @@ def create_app(backend: Backend) -> FastAPI:
                         if isinstance(event, SegmentComplete | SpeechDelta | TurnJudged):
                             continue
                         yield _sse(shown(event))
+                if picture is not None:  # kept once the turn is on the record, to show it again
+                    store.keep_user_image(conversation.id, body.text, picture[1], picture[0])
 
         return _TurnResponse(events(), lambda: outcome.over(cut_short_by_failure=False))
 

@@ -1,5 +1,6 @@
 """Anthropic Messages provider."""
 
+import base64
 import logging
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
@@ -204,6 +205,19 @@ def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:
                 {"type": "tool_use", "id": c.id, "name": c.name, "input": c.arguments or {}}
                 for c in message.tool_calls
             )
+        elif message.image is not None:  # the user sent a picture: an image block, then the text
+            data, mime = message.image
+            content = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime,
+                        "data": base64.b64encode(data).decode(),
+                    },
+                },
+                *([{"type": "text", "text": message.content}] if message.content else []),
+            ]
         elif message.content:
             content = message.content
         else:

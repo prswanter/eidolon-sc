@@ -175,6 +175,10 @@ export const zh = {
     callTooltip: "语音通话",
     placeholder: "用中文或日语说点什么",
     send: "发送",
+    /** 输入框左边发图片的按钮，和选中图片后的预览。 */
+    attachImage: "发一张图片给她看",
+    removeImage: "取消这张图片",
+    imageAttached: "准备发给她的图片",
     /** 消息区里跨天处的日期条；昨天、更早的写法和列表一样（conversationList）。 */
     today: "今天",
     emptyTitle: (name: string) => `和${name}打个招呼吧`,
